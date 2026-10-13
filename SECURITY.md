@@ -1,9 +1,13 @@
 # Security and privacy
 
-Do not post vulnerabilities with private observations or credentials in a public issue. Use GitHub's private vulnerability reporting if available, or request a private reporting channel from the maintainer without disclosing exploit details publicly.
+The native app currently runs as a **disconnected UI preview**. Its launch, controls, local settings, question submission and URL handoff do not invoke Hermes, the Python bridge, model discovery, capture, SQLite or a vault. Questions are not persisted or sent. Only a few UI preferences are stored in UserDefaults. The Python bridge is not bundled. Dormant Swift backend types may remain linked, but the preview has no path that invokes them.
 
-The current build is a developer preview, not security-audited or notarized. Periodic capture is implemented but starts paused and has not been live-screen tested in this checkout. Enabling it requires an explicit confirmation and an already-granted Screen Recording permission; xCreen does not request that permission. The local SQLite index may contain sensitive OCR text; file permissions are not encryption. Use FileVault and a trusted OS account. Seven-day expiry and purge rebuild the FTS index and truncate the WAL when SQLite permits, but do not guarantee forensic erasure, backup deletion, or cloud/transcript erasure.
+This build is not security-audited or notarized. It requests no Screen Recording or Accessibility permissions. Turning the preview Integrity toggle OFF changes a local preference only and never starts capture.
 
-Queries send matching evidence to the configured Hermes model only following one-shot UI consent. Consent is invalidated by changes to the question, model, or vault, by URL handoff, and when a request starts. A query with no matches does not fall back to unrelated recent history. Hermes and provider transcripts may outlive the index. Never treat local OCR as trusted instructions. The first adapter is tool-disabled for query safety; project rules and harness memories remain active, but arbitrary vault file retrieval is not provided by that adapter.
+## Retained backend code — not connected to the app
 
-No raw screenshots, OCR history or personal vault contents belong in this repository. A distributed app must separately verify permissions, exclusions, lock/sleep races, cancellation, retention, egress consent and its supported OS versions.
+Independent bridge/storage/capture source remains in the repository for future reviewed integration. Running that Python CLI separately can create a private local OCR index and send matching evidence through an explicitly selected Hermes harness. File permissions are not encryption; use FileVault and a trusted OS account. Expiry and purge rebuild FTS and truncate WAL when SQLite permits, but cannot promise forensic erasure, backup deletion, or deletion of model/provider transcripts.
+
+Any future UI connection needs separate egress consent tied to the question, model and full harness identity. No-match retrieval must not send unrelated history. Screen text is untrusted evidence, not authority to run tools. Live capture must remain fail-closed until current lock state, foreground identity, permissions, cancellation and retention are verified.
+
+No screenshots, raw OCR history, personal vault contents or credentials belong in the repository. Do not include private data in public vulnerability reports. Use GitHub private vulnerability reporting if available, or request a private reporting channel without publicly disclosing exploit details.
