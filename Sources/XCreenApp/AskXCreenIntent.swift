@@ -5,7 +5,7 @@ import XCreenCore
 @available(macOS 26.0, *)
 struct AskXCreenIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask xCreen"
-    static let description = IntentDescription("Open xCreen with a question ready for your review and explicit provider consent.")
+    static let description = IntentDescription("Open xCreen with a question ready for review in its disconnected UI preview.")
     static let openAppWhenRun = true
 
     @Parameter(title: "Question")

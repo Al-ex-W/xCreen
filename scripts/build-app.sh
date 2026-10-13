@@ -8,10 +8,10 @@ fi
 swift build ${SWIFT_ARGS[@]+"${SWIFT_ARGS[@]}"} -c release -debug-info-format none
 BIN="$(swift build ${SWIFT_ARGS[@]+"${SWIFT_ARGS[@]}"} -c release -debug-info-format none --show-bin-path)"
 APP="dist/xCreen.app"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/bridge"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+rm -rf "$APP/Contents/Resources/bridge"
 cp "$BIN/xCreen" "$APP/Contents/MacOS/xCreen"
 cp resources/Info.plist "$APP/Contents/Info.plist"
-cp bridge/xcreen_bridge.py "$APP/Contents/Resources/bridge/"
 cp LICENSE NOTICE "$APP/Contents/Resources/"
 
 # SwiftPM does not run Xcode's App Intents metadata extractor for a manually
