@@ -1,0 +1,13 @@
+.DS_Store
+.build/
+dist/
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+*.sqlite*
+*.db
+*.log
+local/
+config.local.*
