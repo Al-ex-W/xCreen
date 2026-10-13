@@ -2,6 +2,8 @@
 
 Research date: 2026-10-13. Scope: public primary sources, documentation and selected source inspection only; no app execution, screen capture, permission changes, production code, or repository creation. **API-documented feasibility is not a tested xCreen implementation.** Recommendations below are explicitly design proposals.
 
+> Implementation update: the repository now contains a compile-verified filtered single-window `SCScreenshotManager` path, Vision OCR, a tested fail-closed policy generation, and a macOS 26 `AskXCreenIntent` question handoff. No screenshot was taken and no TCC prompt was requested during development. Live capture, lifecycle transitions, OCR performance, and installed Spotlight discovery remain unverified; the research claims below remain scoped to their original review.
+
 ## Executive decisions
 
 - **Build a context supplier, not another autonomous agent:** a native menu-bar app captures selected screen context locally; the personal Hermes harness retrieves it through a narrowly scoped local adapter. Hermes retains model credentials, conversations, tools and reasoning.

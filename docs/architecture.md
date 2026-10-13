@@ -14,14 +14,14 @@ Explicit opt-in + screen permission
   -> Apple Vision OCR (on-device)
   -> bounded/deduplicated local SQLite + FTS5 evidence
 User query
-  -> relevant evidence + recent fallback, within a token budget
+  -> matching evidence only, within a token budget
   -> selected model through existing Hermes config/auth
-  -> cited answer in the menu-bar panel
+  -> answer in the menu-bar panel with citations requested from the model
 Useful durable fact (separate future reviewed action)
   -> vault metadata + distilled note with source references
 ```
 
-The initial shell is macOS-native SwiftUI/AppKit. Capture policy is independently testable. The Python bridge provides local storage, model inventory and the first Hermes adapter without an exposed TCP port or another service.
+The shell is macOS-native SwiftUI/AppKit. Capture policy is independently testable. Live screenshot capture is unavailable in this preview because no public, synchronous source positively establishes the current unlocked-session state; opt-in and asynchronous notifications are insufficient. If a reliable source is added, a confirmed Integrity-OFF transition may schedule filtered single-window capture every 30 seconds, use Vision OCR in memory, and send bounded JSON to the bridge over stdin. The Python bridge provides local storage, model inventory and the first Hermes adapter without an exposed TCP port or another service. The model is asked to cite evidence when relevant, but its raw output is neither citation-validated nor rendered as verified citations.
 
 ## Harness integration
 
@@ -46,7 +46,7 @@ Expired observations make links unresolved; a durable note must contain enough u
 
 ## Privacy policy design
 
-Start with Integrity mode ON (capture paused). Capture only after explicit opt-in; foreground-window-only capture reduces accidental background exposure but is not a perfect secret filter. Exclude known credential apps and system surfaces, pause on inactivity/lock, discard late captures after pause, process OCR locally and keep no durable pixels. Raw OCR is still sensitive; use a private app-data directory, a rolling retention bound, and purge controls. File permissions are not encryption; FileVault is recommended. SQLite deletion does not guarantee forensic erasure or deletion of backups.
+Integrity mode starts ON (capture paused), and stays ON while current lock state is unknown. Capture begins only after explicit confirmation, a non-prompting permission preflight, and a positively verified current unlocked-session state; this preview intentionally has no such source and makes no screenshot calls. Foreground-window-only capture reduces accidental background exposure but is not a perfect secret filter. The implementation excludes known credential apps, system surfaces, xCreen, and common browsers; browser exclusion remains app-wide because reliable private-window detection is unavailable. Session resignation, sleep, display sleep, inactivity, permission loss, and capture/OCR/storage errors fail closed. Notifications only invalidate work; they do not establish an unlocked state. Policy generations reject late image/OCR work after a pause or foreground PID/bundle change, and the active ingestion subprocess is cancelled. Pixels remain in memory only. Raw OCR is still sensitive; it is bounded, passed over stdin, and stored in a private app-data directory with seven-day expiry and purge controls. File permissions are not encryption; FileVault is recommended. FTS rebuild/optimization and WAL truncation are logical cleanup, not guarantees of forensic erasure or deletion from backups.
 
 Cloud answer consent is separate from capture consent. Only retrieved text is sent to the model, but Hermes transcripts may retain it beyond the local index's TTL. Provider retention is governed by that provider, not xCreen. Integrity mode stops new capture; it does not erase history or revoke earlier cloud transmissions.
 
@@ -54,7 +54,7 @@ Future context improvements: opt-in Accessibility window metadata, browser URL/d
 
 ## Delivery boundaries
 
-This is a developer MVP, not a notarized consumer release. Dynamic arbitrary-query Spotlight invocation, semantic embeddings, live gateway streaming, reviewed vault writes, signed distribution and stronger content redaction require explicit follow-up work. Research records distinguish supported APIs from proposed paths.
+This is a developer MVP, not a notarized consumer release. ScreenCaptureKit/Vision and the macOS 26 question App Intent compile, but live TCC capture, lock/sleep behavior, OCR performance, provider-backed inference, and installed Spotlight discovery remain explicit integration tests. Dynamic arbitrary-query Spotlight interception is not a supported goal. Semantic embeddings, live gateway streaming, reviewed vault writes, signed distribution and stronger content redaction require follow-up work. Research records distinguish supported APIs from implemented and verified behavior.
 
 ## Primary Hermes references
 
