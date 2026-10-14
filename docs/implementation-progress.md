@@ -41,6 +41,17 @@ xCreen session ──tool_call──▶ xcreen_search_ocr · xcreen_images_near 
   the store and shows them as thumbnails under the answer. Arbitrary paths and remote URLs are never
   loaded.
 
+## CLI / tray control
+
+- `AppState.control` is the shared MainActor action surface; CLI reads live state through a private same-UID Unix socket rather than cached log/defaults state. The installer copies the standalone CLI.
+- `SharedSessionController` orders connection/settings/discovery/model/history actions across awaits and freezes launch settings. Integrity transitions retain their individual values in a separate ordered lane. Runtime and UI observers are connection-generation-bound. Manual question identities support cancellation before admission, while queued behind automatic work, and during compaction; waited replies come from terminal turn-owned output, not the independent UI stream.
+- Implemented commands: status, Integrity get/on/off through real capture gates, connect/disconnect/reconnect, models/select, settings/show/set/autodetect, ask/history/cancel, reply images/list/open, panel/show/hide, graceful quit/start/stop/restart and logs. See [parity contract](cli-parity.md).
+- Every launch requires renewed explicit capture consent (Integrity ON). Model picker changes apply only to the dedicated session and do not recursively switch when IPC/session-info updates arrive.
+- Synthetic IPC tests exercise the real Python client and native socket, permissions, exclusive lock, symlink rejection and malformed requests. Fake-gateway history tests use the exact runtime-session ID.
+- Capture-disabled live smoke verification: startup reports running/connected/Integrity true/capture paused; settings access, panel hide, disconnect/reconnect and model inventory succeeded without inference. The inventory returned 137 routes on the verification machine; this is not a shipped fixed catalog.
+- Live reconnect exposed stale old-process EOF/termination callbacks disconnecting a replacement gateway. A delayed-exit regression first failed, then passed after process-generation tokens guarded both frames and disconnect callbacks.
+- Development did not enable capture, request screen permission, submit inference or write a real vault. The app was run from the built `dist` bundle; installation into Applications remains a parent-review step. Ask/cancel/image-open behavior against actual AppKit/provider state is not claimed verified by the socket tests alone.
+
 ## Verified
 
 - `swift test`: synthetic fixtures only.

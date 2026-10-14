@@ -1,62 +1,53 @@
 # xCreen architecture
 
-## Principle: eyes for an existing brain
-
-xCreen observes a permitted foreground window, extracts text locally, and keeps a short-lived searchable evidence index. A harness adapter answers an explicit user query with relevant observations, timestamps and source IDs. Hermes remains responsible for identity, models, credentials, project instructions and personal context. Other harnesses can implement the same adapter contract later.
-
-Do not equate a screenshot with intent, completion, reading comprehension or hidden content. An observation proves only that something was visible at a particular time. Show observation coverage and gaps rather than claiming full knowledge.
-
-## Data flow
+## One owner, two surfaces
 
 ```text
-Explicit opt-in + screen permission
-  -> foreground-window ScreenCaptureKit image (memory only)
-  -> Apple Vision OCR (on-device)
-  -> bounded/deduplicated local SQLite + FTS5 evidence
-User query
-  -> matching evidence only, within a token budget
-  -> selected model through existing Hermes config/auth
-  -> answer in the menu-bar panel with citations requested from the model
-Useful durable fact (separate future reviewed action)
-  -> vault metadata + distilled note with source references
+tray controls / xcreen://ask handoff          standalone xcreen CLI
+              |                                  |
+              |                     private same-UID Unix socket
+              +--------------> MainActor AppState.control
+                                  |       |       |
+                             capture   settings   HermesSessionRuntime
+                                |                 |
+                          EvidenceStore      one dedicated persisted session
+                                |                 |
+                          scoped xCreen tools <--- bundled Python gateway
 ```
 
-The shell is macOS-native SwiftUI/AppKit. Capture policy is independently testable. Live screenshot capture is unavailable in this preview because no public, synchronous source positively establishes the current unlocked-session state; opt-in and asynchronous notifications are insufficient. If a reliable source is added, a confirmed Integrity-OFF transition may schedule filtered single-window capture every 30 seconds, use Vision OCR in memory, and send bounded JSON to the bridge over stdin. The Python bridge provides local storage, model inventory and the first Hermes adapter without an exposed TCP port or another service. The model is asked to cite evidence when relevant, but its raw output is neither citation-validated nor rendered as verified citations.
+The running app owns settings, connection, capture consent, model selection and chat. The CLI is a state-free client, not a second preferences/session implementation. Native UI and IPC requests share `AppState` and its `SharedSessionController`: a FIFO lifecycle gate spans persistence/detection, disconnect/connect, model reads/changes and history RPCs, with frozen launch settings. A separate ordered lane retains every Integrity transition value. UI and runtime subscriptions reject old connection generations. Published state makes CLI mutations visible in the tray without reopening it. The model picker does not reactively resubmit changes when CLI/session-info updates arrive.
 
-## Harness integration
+`LocalControlServer` acquires a private lifetime lock before AppState is constructed. Its Unix socket lives in a UID-owned 0700 directory, has mode 0600, verifies same-UID peers and accepts bounded newline JSON with framing/output/handler deadlines and an eight-client cap. The client also checks ownership/type/mode and peer UID. No network listener is exposed. This is same-user trust, not protection from malicious same-UID software. See [CLI parity and protocol](cli-parity.md).
 
-The initial integration uses the installed Hermes CLI with an argument array and query over stdin, no shell interpolation. It starts a separate bounded xCreen query, preserving the selected profile's rules and memory. It must never resume or write concurrently to the user's active conversation. A configured vault directory scopes project context without copying the vault into app storage. Model selection overrides only that invocation, never the main profile defaults.
+## Evidence pipeline
 
-The main supported long-term transport is Hermes' documented JSON-RPC gateway: per-session model/provider overrides, `model.options`, streaming, cancellation, and explicit approval channels. ACP is suitable for a general harness adapter. The OpenAI-compatible API server is a viable alternative when already enabled and authenticated. A subscription inference proxy alone is NOT a context-aware harness: it has model access but not the personal agent loop/memory.
+Integrity defaults ON at every launch, regardless of prior settings. It stops screenshot/OCR work and automatic transmissions, rejects stale capture generations and cancels automatic work; manual historical questions remain permitted. OFF is explicit consent through the same real capture service, with macOS Screen Recording permission and current-session gates. Missing/contradictory session-state compatibility signals fail closed; no documented synchronous unlock API is claimed. Notifications invalidate work, not prove unlocking.
 
-Do not silently create another gateway, expose a local unauthenticated API, copy API keys, or edit the user's Hermes configuration. Inventory existing configured models. Recommend a small model such as Haiku or Luna only if actually available through that user's provider; don't pretend those are installed.
+Eligible foreground-window temporary pixels feed local Vision OCR at most once per active second. OCR >=90% similar to the last saved sample is discarded. Independent PNGs are saved every ten active seconds. Thirty images / five active minutes create a durable chronological batch with timestamp/ID binding and OCR changes. Excluded applications, pauses, sleep and failures do not advance the clock, manufacture frames or create catch-up bursts. Browsers are conservatively excluded app-wide.
 
-## Vault boundary
+`EvidenceStore` maintains independent bounded raw files, a JSON index and batch/checkpoint metadata outside the vault. Private directories/files use 0700/0600. Startup, periodic maintenance and queries apply seven-day expiry, removing derived references as well. This is neither database encryption nor forensic/backup erasure. Recommend FileVault. The retained independent Python bridge has SQLite/FTS behavior but is not the live native store.
 
-The vault is a knowledge store, not an activity dump. Keep screenshots, raw OCR, SQLite, model credentials and debugging logs outside it. In the initial app, no automatic vault writes are performed. The optional vault path loads existing project rules into a user-initiated query.
+## Hermes transport and session
 
-Proposed durable integration, after a separate reviewed consent step:
+The bundled Python bootstrap registers only the four scoped xCreen tools and starts Hermes's raw `tui_gateway`. Hermes remains the authority for auth, personal/project rules and configured models. No auth copy, configuration mutation, profile creation or attachment to another live conversation is allowed.
 
-- `Agent/xCreen.md`: source policy, consent, retention and local resolver instructions.
-- `Daily/YYYY-MM-DD.md`: optional short sourced activity distillation, only if useful.
-- Existing project/entity notes: link decisions to `xcreen://observation/<id>` and timestamp; distinguish observed facts from inferences.
-- Shared vault-write lock: use the existing harness writer, not a second independent writer.
+`HermesSessionRuntime` resumes the exact stored xCreen identity; all manual/automatic submits, model changes and compression share that session owner. Terminal events, not admission acknowledgments, finish a turn and return its own collected output. Manual work has priority and a per-question identity reserved before connection/task admission. Cancel removes that queued question or interrupts only its matching current turn. Integrity invalidates queued automatic turns and cancels an active automatic turn; a later OFF does not restore an invalidated epoch. Transmission checks bind both epoch and turn identity. Disconnect fails outstanding/queued turns before replacement; observer EOF is generation-bound. Compaction reserves incoming/output headroom and triggers at 500k context tokens or earlier for a smaller usable window; it is lossy summary, not eternal exact recall.
 
-Expired observations make links unresolved; a durable note must contain enough useful distillation to stand alone. Screen content cannot create calendar events, send messages or change operating rules by itself. Existing email/message intake jobs remain untouched.
+Provider-aware model inventory comes from `model.options`; session-scoped selection uses `/model ... --provider ... --session`, leaving defaults untouched. Inventory does not currently prove vision support or image limits. History is read through the installed, source-verified `session.history` RPC for the same runtime session and has an explicit local size limit. Session-info events synchronize current provider/model into the tray.
 
-## Privacy policy design
+## Tools and vault boundary
 
-Integrity mode starts ON (capture paused), and stays ON while current lock state is unknown. Capture begins only after explicit confirmation, a non-prompting permission preflight, and a positively verified current unlocked-session state; this preview intentionally has no such source and makes no screenshot calls. Foreground-window-only capture reduces accidental background exposure but is not a perfect secret filter. The implementation excludes known credential apps, system surfaces, xCreen, and common browsers; browser exclusion remains app-wide because reliable private-window detection is unavailable. Session resignation, sleep, display sleep, inactivity, permission loss, and capture/OCR/storage errors fail closed. Notifications only invalidate work; they do not establish an unlocked state. Policy generations reject late image/OCR work after a pause or foreground PID/bundle change, and the active ingestion subprocess is cancelled. Pixels remain in memory only. Raw OCR is still sensitive; it is bounded, passed over stdin, and stored in a private app-data directory with seven-day expiry and purge controls. File permissions are not encryption; FileVault is recommended. FTS rebuild/optimization and WAL truncation are logical cleanup, not guarantees of forensic erasure or deletion from backups.
+The xCreen-only toolset supports bounded OCR search with timestamps/IDs, nearby image lookup, actual local image evidence, and source-bound useful Daily-note facts. Raw evidence stays outside the vault. When configured/authorized, the writer appends only to an existing date-matching Daily note, under a shared writer lock with idempotency and read-back checks. No screenshots/OCR dumps, credentials or arbitrary new notes. Screen content is untrusted evidence and cannot authorize messaging, calendar changes, commands or unrelated actions.
 
-Cloud answer consent is separate from capture consent. Only retrieved text is sent to the model, but Hermes transcripts may retain it beyond the local index's TTL. Provider retention is governed by that provider, not xCreen. Integrity mode stops new capture; it does not erase history or revoke earlier cloud transmissions.
+Assistant `xcreen-image:<id>` references are resolved only through the evidence store. Current reply cards and CLI Open share evidence-owned paths. Caller-supplied paths/remote URLs are not attachment authority. Asking is deliberate provider processing and Hermes/provider retention can outlive local expiry. Integrity does not erase those histories or revoke previously transmitted evidence.
 
-Future context improvements: opt-in Accessibility window metadata, browser URL/document identity and user bookmarks. Never request full Accessibility permissions just to imitate a complete memory system, read password fields, log keystrokes, inspect clipboard content automatically or bypass private browsing.
+## Delivery and testing
 
-## Delivery boundaries
+The installer copies the standalone CLI and bundles the runtime, so installed operation does not depend on a checkout symlink. The app remains a local developer build, not notarized or security audited. `xcreen://ask` and macOS 26+ App Intent handoffs open/fill input without submission. Arbitrary live Spotlight interception/ranking is not claimed.
 
-This is a developer MVP, not a notarized consumer release. ScreenCaptureKit/Vision and the macOS 26 question App Intent compile, but live TCC capture, lock/sleep behavior, OCR performance, provider-backed inference, and installed Spotlight discovery remain explicit integration tests. Dynamic arbitrary-query Spotlight interception is not a supported goal. Semantic embeddings, live gateway streaming, reviewed vault writes, signed distribution and stronger content redaction require follow-up work. Research records distinguish supported APIs from implemented and verified behavior.
+Synthetic tests cover storage, capture policy, fake-gateway sessions, history RPC and real local IPC/client credentials. Separate user-authorized on-device checks remain for TCC, capture, lock/sleep transitions, OCR quality, provider inference, live vault writes and Spotlight discovery. Protocol tests alone do not validate every AppKit action.
 
-## Primary Hermes references
+## References
 
 - https://hermes-agent.nousresearch.com/docs/developer-guide/programmatic-integration
 - https://hermes-agent.nousresearch.com/docs/user-guide/features/context-files
