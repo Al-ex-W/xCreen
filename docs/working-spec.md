@@ -4,7 +4,7 @@ User-approved behavior. This supersedes the disconnected-preview scope; retain p
 
 ## Observation and retention
 
-- Integrity ON means no screenshot acquisition, no OCR, no automatic agent submissions. Reject in-flight work after pause. Default ON; never start live capture during development verification.
+- Integrity is the user's desired privacy switch and changes ONLY through explicit tray/CLI actions. Default ON when no preference exists; preserve the explicitly selected preference across restart. ON means no screenshot acquisition, no OCR, no automatic submissions. Lock/sleep/permission/errors/exclusions suspend actual capture and revoke in-flight/automatic work without changing the switch. Recovery requires current safe state and desired OFF; never start live capture during development verification.
 - When Integrity OFF and permission/state/exclusions permit capture, sample a temporary image for local Apple Vision OCR at most once per active second. Compare normalized text to the last SAVED OCR snapshot, not the last candidate. Discard OCR snapshots with text similarity >= 90%; define/test a practical deterministic similarity algorithm.
 - Save independent screenshots every ten active seconds regardless of OCR similarity. Save OCR and images as independent timestamped files outside chat history and the knowledge vault, with a searchable metadata/FTS index linking OCR timestamps to nearby image IDs.
 - Delete xCreen-owned raw OCR/image files and derived local index/thumbnail entries older than seven days, including crash recovery and startup cleanup. Do not delete Hermes history, vault notes or provider history. No forensic-erasure claim. Use private filesystem permissions and atomic writes; no private fixtures/source data in git.

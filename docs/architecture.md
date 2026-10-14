@@ -21,7 +21,7 @@ The running app owns settings, connection, capture consent, model selection and 
 
 ## Evidence pipeline
 
-Integrity defaults ON at every launch, regardless of prior settings. It stops screenshot/OCR work and automatic transmissions, rejects stale capture generations and cancels automatic work; manual historical questions remain permitted. OFF is explicit consent through the same real capture service, with macOS Screen Recording permission and current-session gates. Missing/contradictory session-state compatibility signals fail closed; no documented synchronous unlock API is claimed. Notifications invalidate work, not prove unlocking.
+Integrity defaults ON when no user preference exists and otherwise preserves that preference across launch. Only explicit user actions mutate it; actual capture safety is a separate blocked/running state. It stops screenshot/OCR work and automatic transmissions, rejects stale capture generations and cancels automatic work; manual historical questions remain permitted. OFF is explicit consent through the same real capture service, with macOS Screen Recording permission and current-session gates. Missing/contradictory session-state compatibility signals fail closed; no documented synchronous unlock API is claimed. Notifications invalidate work, not prove unlocking.
 
 Eligible foreground-window temporary pixels feed local Vision OCR at most once per active second. OCR >=90% similar to the last saved sample is discarded. Independent PNGs are saved every ten active seconds. Thirty images / five active minutes create a durable chronological batch with timestamp/ID binding and OCR changes. Excluded applications, pauses, sleep and failures do not advance the clock, manufacture frames or create catch-up bursts. Browsers are conservatively excluded app-wide.
 
@@ -29,7 +29,7 @@ Eligible foreground-window temporary pixels feed local Vision OCR at most once p
 
 ## Hermes transport and session
 
-The bundled Python bootstrap registers only the four scoped xCreen tools and starts Hermes's raw `tui_gateway`. Hermes remains the authority for auth, personal/project rules and configured models. No auth copy, configuration mutation, profile creation or attachment to another live conversation is allowed.
+The bundled Python bootstrap registers only the six scoped xCreen tools and starts Hermes's raw `tui_gateway`. Hermes remains the authority for auth, personal/project rules and configured models. No auth copy, configuration mutation, profile creation or attachment to another live conversation is allowed.
 
 `HermesSessionRuntime` resumes the exact stored xCreen identity; all manual/automatic submits, model changes and compression share that session owner. Terminal events, not admission acknowledgments, finish a turn and return its own collected output. Manual work has priority and a per-question identity reserved before connection/task admission. Cancel removes that queued question or interrupts only its matching current turn. Integrity invalidates queued automatic turns and cancels an active automatic turn; a later OFF does not restore an invalidated epoch. Transmission checks bind both epoch and turn identity. Disconnect fails outstanding/queued turns before replacement; observer EOF is generation-bound. Compaction reserves incoming/output headroom and triggers at 500k context tokens or earlier for a smaller usable window; it is lossy summary, not eternal exact recall.
 
