@@ -42,6 +42,7 @@ import XCreenCore
         vaultPath = defaults.string(forKey: "xcreen.vault.path") ?? ""
         storedSessionID = defaults.string(forKey: "xcreen.hermes.session") ?? ""
         if hermesPython.isEmpty || hermesRoot.isEmpty || vaultPath.isEmpty { autodetectLocalSetup(overwrite: false) }
+        else { connectOnLaunch() }
         do {
             let store = try EvidenceStore(root: EvidenceStore.defaultRoot)
             evidenceStore = store
@@ -70,29 +71,49 @@ import XCreenCore
             submissionMessage = "Hermes is unavailable — configure local Python and the Hermes source root before sending."
             return
         }
-        submissionMessage = "Connecting to Hermes…"
         streamedReply = ""
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await sessionRuntime.connect(launch: .bundled(python: hermesPython, hermesRoot: hermesRoot, evidenceRoot: EvidenceStore.defaultRoot.path, vault: vaultPath.isEmpty ? nil : vaultPath))
-                observeGatewayIfNeeded()
-                if let identity = await sessionRuntime.currentSession() {
-                    storedSessionID = identity.storedSessionID
-                    runtimeSessionID = identity.runtimeSessionID
-                }
-                connected = true
-                if let inventory = try? await sessionRuntime.modelOptions() {
-                    hermesModels = (try? HermesModelRoute.decodeInventory(inventory)) ?? []
-                }
-                await submitPendingBatches()
+                try await connectIfNeeded()
+                submissionMessage = "Asking Hermes…"
                 try await sessionRuntime.submitManual(XCreenPrompts.manual(question: question))
-                submissionMessage = "Hermes accepted the request."
+                submissionMessage = "Hermes response complete."
             } catch {
-                connected = false
-                submissionMessage = "Hermes unavailable — no answer was generated."
+                submissionMessage = "Hermes did not answer: \(error.localizedDescription)"
             }
         }
+    }
+
+    /// Opens (or resumes) the xCreen session. Connecting runs no model; it only starts the
+    /// local gateway, resumes the stored session and loads the model list.
+    func connectIfNeeded() async throws {
+        guard !connected else { return }
+        guard !hermesPython.isEmpty, !hermesRoot.isEmpty else { throw HermesGatewayError.invalidLaunch }
+        submissionMessage = "Connecting to Hermes…"
+        do {
+            try await sessionRuntime.connect(launch: .bundled(python: hermesPython, hermesRoot: hermesRoot, evidenceRoot: EvidenceStore.defaultRoot.path, vault: vaultPath.isEmpty ? nil : vaultPath))
+        } catch {
+            connected = false
+            submissionMessage = "Hermes connection failed: \(error.localizedDescription)"
+            throw error
+        }
+        observeGatewayIfNeeded()
+        if let identity = await sessionRuntime.currentSession() {
+            storedSessionID = identity.storedSessionID
+            runtimeSessionID = identity.runtimeSessionID
+        }
+        connected = true
+        submissionMessage = "Hermes connected."
+        if let inventory = try? await sessionRuntime.modelOptions() {
+            hermesModels = (try? HermesModelRoute.decodeInventory(inventory)) ?? []
+        }
+        await submitPendingBatches()
+    }
+
+    func connectOnLaunch() {
+        guard !hermesPython.isEmpty, !hermesRoot.isEmpty else { return }
+        Task { [weak self] in try? await self?.connectIfNeeded() }
     }
 
     private func observeGatewayIfNeeded() {
@@ -105,6 +126,8 @@ import XCreenCore
                 receiveGatewayEvent(event)
             }
             observingGateway = false
+            connected = false
+            submissionMessage = "Hermes gateway stopped. It reconnects on your next question."
         }
     }
 
@@ -143,7 +166,7 @@ import XCreenCore
             saveHermesExecutable()
             submissionMessage = hermes == nil
                 ? "Hermes not found. Install it or fill the paths in Local settings."
-                : "Detected Hermes\(vault == nil ? "" : " and vault"). Nothing launches until you ask."
+                : "Detected Hermes\(vault == nil ? "" : " and vault")."
         }
     }
 
@@ -151,8 +174,13 @@ import XCreenCore
         defaults.set(hermesPython.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "xcreen.hermes.python")
         defaults.set(hermesRoot.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "xcreen.hermes.root")
         defaults.set(vaultPath.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "xcreen.vault.path")
-        connected = false
-        submissionMessage = "Saved local Hermes path. It is not launched until you ask."
+        // New paths need a fresh gateway process.
+        Task { [weak self] in
+            guard let self else { return }
+            await sessionRuntime.disconnect()
+            connected = false
+            connectOnLaunch()
+        }
     }
 
     func enableCaptureAfterExplicitConsent() {
