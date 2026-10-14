@@ -14,6 +14,10 @@ Screenshots alone cannot establish what you intended, whether an operation compl
 
 The native silver mini-panel uses a placeholder monitor symbol inspired by classic macOS utility popovers. A final logo can replace it later.
 
+## Install
+
+Agents and humans: follow [INSTALL.md](INSTALL.md). In short, `bash scripts/install.sh` builds the app, auto-detects Hermes and your Obsidian vault, and pre-fills Local settings.
+
 ## Build and run
 
 Requires macOS 14+ and Xcode/Swift 5.9+. The menu app has no Hermes, model-provider, capture, or permission requirement until the user deliberately configures a local Hermes executable and asks a question.
