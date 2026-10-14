@@ -261,5 +261,29 @@ bridge.invoke_hermes(a, {"model": "fixture-main", "provider": "example"}, "promp
                 error = self.cli('ingest', '--text', 'invalid fixture', '--app', 'Example', '--title', 'Fixture', '--timestamp', bad, success=False)
                 self.assertIn('error', error)
 
+    def test_ocr_similarity_dedup_keeps_last_saved_snapshot_and_images_are_independent(self):
+        first = self.cli('capture-fixture', '--text', 'Project Alpha launch plan', '--image-base64', 'iVBORw0KGgo=', '--app', 'Example', '--title', 'Fixture')
+        self.assertTrue(first['ocr_saved'])
+        self.assertTrue(first['image_saved'])
+        # A candidate close to the SAVED snapshot is discarded, but its image is still retained.
+        duplicate = self.cli('capture-fixture', '--text', 'project alpha launch plan!', '--image-base64', 'iVBORw0KGgo=', '--app', 'Example', '--title', 'Fixture')
+        self.assertFalse(duplicate['ocr_saved'])
+        self.assertTrue(duplicate['image_saved'])
+        changed = self.cli('capture-fixture', '--text', 'A completely different synthetic topic', '--image-base64', 'iVBORw0KGgo=', '--app', 'Example', '--title', 'Fixture')
+        self.assertTrue(changed['ocr_saved'])
+        nearby = self.cli('images-near', '--timestamp', changed['timestamp'])['images']
+        self.assertGreaterEqual(len(nearby), 1)
+        self.assertTrue(all('path' not in item for item in nearby))
+
+    def test_active_batch_clock_pauses_without_catchup_and_persists_checkpoint(self):
+        started = self.cli('batch-tick', '--active-seconds', '120', '--eligible')
+        self.assertEqual(started['active_seconds'], 120)
+        paused = self.cli('batch-tick', '--active-seconds', '180')
+        self.assertEqual(paused['active_seconds'], 120)
+        completed = self.cli('batch-tick', '--active-seconds', '180', '--eligible')
+        self.assertTrue(completed['completed'])
+        self.assertEqual(completed['active_seconds'], 0)
+        self.assertEqual(completed['completed_batches'], 1)
+
 if __name__ == '__main__':
     unittest.main()
