@@ -9,6 +9,36 @@ import re
 import sqlite3
 import sys
 import hashlib
+import base64
+import difflib
+import tempfile
+
+
+def normalize_ocr(value):
+    """Deterministic, conservative comparison form; evidence is never executed."""
+    return ' '.join(re.findall(r'[^\W_]+', value.casefold(), re.UNICODE))
+
+
+def ocr_similarity(left, right):
+    """Character similarity on normalized OCR, in [0, 1]."""
+    return difflib.SequenceMatcher(a=normalize_ocr(left), b=normalize_ocr(right), autojunk=False).ratio()
+
+
+def private_atomic_write(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    fd, temporary = tempfile.mkstemp(prefix='.xcreen-', dir=path.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, 'wb') as out:
+            out.write(content)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(temporary, path)
+        path.chmod(0o600)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def configured_models(home):
@@ -178,6 +208,16 @@ def main():
     ask.add_argument('--model-id', required=True)
     ask.add_argument('--hermes', required=True)
     ask.add_argument('--vault', type=Path)
+    fixture = commands.add_parser('capture-fixture')
+    for field in ('text', 'image-base64', 'app', 'title'):
+        fixture.add_argument('--' + field, required=True)
+    fixture.add_argument('--timestamp')
+    near = commands.add_parser('images-near')
+    near.add_argument('--timestamp', required=True)
+    near.add_argument('--seconds', type=int, default=30)
+    tick = commands.add_parser('batch-tick')
+    tick.add_argument('--active-seconds', type=int, required=True)
+    tick.add_argument('--eligible', action='store_true')
     args = parser.parse_args()
     if args.command == 'ask':
         inventory = configured_models(home_default)
@@ -212,6 +252,20 @@ def main():
         args.text = args.text[:12000]
         args.app = args.app[:256]
         args.title = args.title[:1024]
+    if args.command == 'capture-fixture':
+        if len(args.text) > 12000 or len(args.app) > 256 or len(args.title) > 1024:
+            raise ValueError('Fixture bounds exceeded')
+        args.timestamp = valid_timestamp(args.timestamp)
+        try:
+            args.image_bytes = base64.b64decode(args.image_base64, validate=True)
+        except (ValueError, TypeError):
+            raise ValueError('Invalid image fixture') from None
+        if not args.image_bytes or len(args.image_bytes) > 20 * 1024 * 1024:
+            raise ValueError('Invalid image fixture')
+    if args.command == 'images-near' and not 1 <= args.seconds <= 600:
+        raise ValueError('Nearby image range is invalid')
+    if args.command == 'batch-tick' and not 0 <= args.active_seconds <= 300:
+        raise ValueError('Active duration is invalid')
     os.umask(0o077)
     args.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     args.data_dir.chmod(0o700)
@@ -226,6 +280,8 @@ def main():
         db.row_factory = sqlite3.Row
         db.execute('CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY, timestamp TEXT, text TEXT, app TEXT, title TEXT)')
         db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS observation_fts USING fts5(text, app, title, content='observations', content_rowid='id')")
+        db.execute('CREATE TABLE IF NOT EXISTS images (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, filename TEXT NOT NULL, ocr_id INTEGER)')
+        db.execute('CREATE TABLE IF NOT EXISTS capture_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
         cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         expired = db.execute('SELECT * FROM observations WHERE timestamp < ?', (cutoff,)).fetchall()
         if args.command == 'purge':
@@ -234,6 +290,16 @@ def main():
         for row in expired:
             db.execute("INSERT INTO observation_fts(observation_fts,rowid,text,app,title) VALUES('delete',?,?,?,?)", (row['id'], row['text'], row['app'], row['title']))
             db.execute('DELETE FROM observations WHERE id=?', (row['id'],))
+        expired_images = db.execute('SELECT * FROM images WHERE timestamp < ?', (cutoff,)).fetchall()
+        if args.command == 'purge':
+            expired_images = db.execute('SELECT * FROM images').fetchall()
+        for row in expired_images:
+            # Missing files are still removed from the index during crash recovery.
+            try:
+                (args.data_dir / 'images' / row['filename']).unlink()
+            except FileNotFoundError:
+                pass
+            db.execute('DELETE FROM images WHERE id=?', (row['id'],))
         if removed or args.command == 'purge':
             # Rebuild from the content table so stale/orphaned index terms are gone,
             # then merge FTS segments. This is logical cleanup, not a claim of
@@ -251,6 +317,37 @@ def main():
                 cursor = db.execute('INSERT INTO observations(timestamp,text,app,title) VALUES(?,?,?,?)', (timestamp, args.text, args.app, args.title))
                 db.execute('INSERT INTO observation_fts(rowid,text,app,title) VALUES(?,?,?,?)', (cursor.lastrowid, args.text, args.app, args.title))
                 result = {'ok': True, 'id': cursor.lastrowid, 'deduplicated': False}
+        elif args.command == 'capture-fixture':
+            image_id = hashlib.sha256((args.timestamp + str(os.urandom(16))).encode()).hexdigest()[:24]
+            filename = image_id + '.bin'
+            private_atomic_write(args.data_dir / 'images' / filename, args.image_bytes)
+            last = db.execute("SELECT value FROM capture_state WHERE key='last_saved_ocr'").fetchone()
+            saved = last is None or ocr_similarity(last['value'], args.text) < 0.90
+            ocr_id = None
+            if saved:
+                cursor = db.execute('INSERT INTO observations(timestamp,text,app,title) VALUES(?,?,?,?)', (args.timestamp, args.text, args.app, args.title))
+                ocr_id = cursor.lastrowid
+                db.execute('INSERT INTO observation_fts(rowid,text,app,title) VALUES(?,?,?,?)', (ocr_id, args.text, args.app, args.title))
+                db.execute("INSERT INTO capture_state(key,value) VALUES('last_saved_ocr', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (args.text,))
+            db.execute('INSERT INTO images(id,timestamp,filename,ocr_id) VALUES(?,?,?,?)', (image_id, args.timestamp, filename, ocr_id))
+            result = {'timestamp': args.timestamp, 'image_id': image_id, 'image_saved': True, 'ocr_saved': saved, 'ocr_id': ocr_id}
+        elif args.command == 'images-near':
+            target = valid_timestamp(args.timestamp)
+            start = (datetime.fromisoformat(target) - timedelta(seconds=args.seconds)).isoformat()
+            end = (datetime.fromisoformat(target) + timedelta(seconds=args.seconds)).isoformat()
+            rows = db.execute('SELECT id,timestamp,ocr_id FROM images WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp', (start, end)).fetchall()
+            result = {'images': [dict(row) for row in rows]}
+        elif args.command == 'batch-tick':
+            row = db.execute("SELECT value FROM capture_state WHERE key='batch_checkpoint'").fetchone()
+            checkpoint = json.loads(row['value']) if row else {'active_seconds': 0, 'completed_batches': 0}
+            if args.eligible:
+                checkpoint['active_seconds'] += args.active_seconds
+            completed = checkpoint['active_seconds'] >= 300
+            if completed:
+                checkpoint['active_seconds'] -= 300
+                checkpoint['completed_batches'] += 1
+            db.execute("INSERT INTO capture_state(key,value) VALUES('batch_checkpoint', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(checkpoint),))
+            result = {**checkpoint, 'completed': completed}
         else:
             tokens = re.findall(r'[^\W_]+', args.query[:4096], re.UNICODE)[:32]
             match = ' OR '.join('"' + token + '"' for token in tokens)
