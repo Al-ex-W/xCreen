@@ -9,22 +9,186 @@ import XCreenCore
     @Published var query = ""
     @Published var submissionMessage = ""
     @Published var showSettings = false
+    @Published var hermesPython = ""
+    @Published var hermesRoot = ""
+    @Published var vaultPath = ""
+    @Published var connected = false
+    @Published var streamedReply = ""
+    @Published var hermesModels: [HermesModelRoute] = []
+    @Published var selectedHermesModel = ""
+    @Published var appendix: [EvidenceImage] = []
 
     private var preview: DisconnectedPreviewState
+    private let gateway = HermesGateway()
+    private let sessionRuntime: HermesSessionRuntime
+    private var evidenceStore: EvidenceStore?
+    private var captureService: CaptureService?
+    private var storedSessionID = ""
+    private var runtimeSessionID = ""
+    private var observingGateway = false
+    private var inFlightBatches: Set<String> = []
+    private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        sessionRuntime = HermesSessionRuntime(gateway: gateway, records: UserDefaultsHermesSessionRecordStore(defaults: defaults))
         let savedPreview = DisconnectedPreviewState(defaults: defaults)
         preview = savedPreview
         integrity = savedPreview.integrityMode
         modelSelection = savedPreview.modelSelection
         interval = savedPreview.interval
+        hermesPython = defaults.string(forKey: "xcreen.hermes.python") ?? ""
+        hermesRoot = defaults.string(forKey: "xcreen.hermes.root") ?? ""
+        vaultPath = defaults.string(forKey: "xcreen.vault.path") ?? ""
+        storedSessionID = defaults.string(forKey: "xcreen.hermes.session") ?? ""
+        do {
+            let store = try EvidenceStore(root: EvidenceStore.defaultRoot)
+            evidenceStore = store
+            captureService = CaptureService(
+                store: store,
+                status: { [weak self] value in self?.submissionMessage = value },
+                integrityChanged: { [weak self] value in self?.integrity = value },
+                batchReady: { [weak self] batch in self?.submit(batch: batch) }
+            )
+        } catch {
+            submissionMessage = "Capture remains paused — local evidence storage could not be opened."
+        }
     }
 
-    var status: String { preview.connectionStatus }
+    var status: String {
+        if connected { return "Hermes connected · xCreen session" }
+        if hermesPython.isEmpty || hermesRoot.isEmpty { return "Hermes unavailable · configure local Python and Hermes source root" }
+        return "Hermes disconnected · no request was sent"
+    }
     var canAsk: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     func submitQuestion() {
-        submissionMessage = preview.submit(question: query).message
+        let question = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return }
+        guard !hermesPython.isEmpty, !hermesRoot.isEmpty else {
+            submissionMessage = "Hermes is unavailable — configure local Python and the Hermes source root before sending."
+            return
+        }
+        submissionMessage = "Connecting to Hermes…"
+        streamedReply = ""
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await sessionRuntime.connect(launch: .bundled(python: hermesPython, hermesRoot: hermesRoot, evidenceRoot: EvidenceStore.defaultRoot.path, vault: vaultPath.isEmpty ? nil : vaultPath))
+                observeGatewayIfNeeded()
+                if let identity = await sessionRuntime.currentSession() {
+                    storedSessionID = identity.storedSessionID
+                    runtimeSessionID = identity.runtimeSessionID
+                }
+                connected = true
+                if let inventory = try? await sessionRuntime.modelOptions() {
+                    hermesModels = (try? HermesModelRoute.decodeInventory(inventory)) ?? []
+                }
+                await submitPendingBatches()
+                try await sessionRuntime.submitManual(XCreenPrompts.manual(question: question))
+                submissionMessage = "Hermes accepted the request."
+            } catch {
+                connected = false
+                submissionMessage = "Hermes unavailable — no answer was generated."
+            }
+        }
+    }
+
+    private func observeGatewayIfNeeded() {
+        guard !observingGateway else { return }
+        observingGateway = true
+        Task { [weak self] in
+            guard let self else { return }
+            let events = await gateway.events()
+            for await event in events {
+                receiveGatewayEvent(event)
+            }
+            observingGateway = false
+        }
+    }
+
+    private func receiveGatewayEvent(_ event: HermesGatewayEvent) {
+        guard let frame = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any],
+              let payload = frame["payload"] as? [String: Any] else { return }
+        switch event.type {
+        case "message.start": streamedReply = ""; appendix = []
+        case "message.delta", "message.interim":
+            streamedReply += payload["text"] as? String ?? ""
+        case "message.complete": submissionMessage = "Hermes response complete."; resolveAppendix()
+        case "session.info":
+            if let usage = payload["usage"] as? [String: Any] {
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.sessionRuntime.updateContextUsage(tokens: usage["context_used"] as? Int ?? 0, limit: usage["context_max"] as? Int)
+                }
+            }
+        case "error": submissionMessage = "Hermes reported an error — no answer was claimed."
+        default: break
+        }
+    }
+
+    func saveHermesExecutable() {
+        defaults.set(hermesPython.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "xcreen.hermes.python")
+        defaults.set(hermesRoot.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "xcreen.hermes.root")
+        defaults.set(vaultPath.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "xcreen.vault.path")
+        connected = false
+        submissionMessage = "Saved local Hermes path. It is not launched until you ask."
+    }
+
+    func enableCaptureAfterExplicitConsent() {
+        guard !integrity else {
+            submissionMessage = "Turn off Integrity mode first, then explicitly enable capture."
+            return
+        }
+        guard captureService?.enableAfterExplicitConsent() == true else { return }
+    }
+
+    func switchHermesModel(_ routeID: String) {
+        guard let route = hermesModels.first(where: { $0.id == routeID }) else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await sessionRuntime.switchModel(model: route.model, provider: route.provider)
+                selectedHermesModel = route.id
+                submissionMessage = "Switched this xCreen session to \(route.provider) / \(route.model)."
+            } catch { submissionMessage = "Hermes could not switch this session model; defaults were not changed." }
+        }
+    }
+
+    private func submit(batch: CaptureBatch) {
+        // A batch is retried after reconnects; never put the same one in flight twice.
+        guard inFlightBatches.insert(batch.id).inserted else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            defer { inFlightBatches.remove(batch.id) }
+            let manifest = XCreenPrompts.batch(batch)
+            let images = batch.images.map { HermesEvidenceAttachment(id: $0.id, timestamp: $0.timestamp, fileURL: $0.fileURL) }
+            do {
+                try await sessionRuntime.submitAutomatic(manifest: manifest, images: images)
+                try await evidenceStore?.markBatch(id: batch.id, status: "sent")
+            } catch {
+                // Keep the durable marker eligible for a later reconnect; no inference was claimed.
+                try? await evidenceStore?.markBatch(id: batch.id, status: "pending")
+                submissionMessage = "Automatic evidence batch was retained locally; Hermes did not accept it."
+            }
+        }
+    }
+
+    private func submitPendingBatches() async {
+        guard let evidenceStore else { return }
+        guard let batches = try? await evidenceStore.pendingBatches() else { return }
+        for batch in batches { submit(batch: batch) }
+    }
+
+    /// Resolves `xcreen-image:<id>` references through the evidence store only.
+    private func resolveAppendix() {
+        let ids = EvidenceReferences.imageIDs(in: streamedReply)
+        guard let evidenceStore, !ids.isEmpty else { appendix = []; return }
+        Task { [weak self] in
+            var found: [EvidenceImage] = []
+            for id in ids { if let image = try? await evidenceStore.image(id: id) { found.append(image) } }
+            self?.appendix = found
+        }
     }
 
     func acceptURLQuery(_ value: String) {
@@ -45,7 +209,7 @@ struct Panel: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("xCreen").font(.system(size: 24, weight: .medium))
-                    Text("A smarter view, anywhere.")
+                Text("Private evidence, deliberate assistance.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -56,24 +220,35 @@ struct Panel: View {
 
             Toggle("Integrity mode", isOn: $state.integrity)
                 .toggleStyle(.switch)
-                .accessibilityHint("Saves a local preview preference only. Capture remains off.")
-            Text("Capture is OFF. Changing this switch only saves a local UI preference.")
+                .accessibilityHint("Integrity pauses capture and automatic work.")
+            Button("Enable capture after explicit consent") { state.enableCaptureAfterExplicitConsent() }
+                .disabled(state.integrity)
+            Text("Capture is paused by default. This build fails closed because it cannot safely prove the current lock state.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text("Recommendation")
+                Text("Hermes route")
                     .font(.subheadline.weight(.medium))
-                Picker("Recommendation", selection: $state.modelSelection) {
+                Picker("Route preference", selection: $state.modelSelection) {
                     ForEach(PreviewModelSelection.allCases, id: \.self) { selection in
                         Text(selection.label).tag(selection)
                     }
                 }
                 .labelsHidden()
-                .accessibilityLabel("Demo model recommendation")
-                Text("These are preview choices, not discovered models. Use your main harness selection when connected later.")
+                .accessibilityLabel("Local route preference")
+                Text("The session picker is populated only by Hermes after a connection; this preference never changes Hermes defaults.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if !state.hermesModels.isEmpty {
+                Picker("Hermes session model", selection: $state.selectedHermesModel) {
+                    Text("Choose provider/model").tag("")
+                    ForEach(state.hermesModels) { route in Text("\(route.provider) · \(route.model)").tag(route.id) }
+                }
+                .onChange(of: state.selectedHermesModel) { _, new in state.switchHermesModel(new) }
+                .accessibilityHint("Uses Hermes's provider-aware inventory and changes only the xCreen session.")
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -85,7 +260,7 @@ struct Panel: View {
                         .keyboardShortcut(.defaultAction)
                         .disabled(!state.canAsk)
                     Spacer()
-                    Text("UI preview only")
+                    Text(state.connected ? "Persistent xCreen session" : "No request sent")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -98,14 +273,33 @@ struct Panel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            DisclosureGroup("Preview settings", isExpanded: $state.showSettings) {
+            if !state.streamedReply.isEmpty {
+                Text(state.streamedReply)
+                    .font(.subheadline)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !state.appendix.isEmpty {
+                EvidenceAppendix(images: state.appendix)
+            }
+
+            DisclosureGroup("Local settings", isExpanded: $state.showSettings) {
                 VStack(alignment: .leading, spacing: 6) {
+                    TextField("Python executable (absolute path)", text: $state.hermesPython)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Hermes source root (contains tui_gateway/)", text: $state.hermesRoot)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Obsidian vault (optional, enables Daily notes)", text: $state.vaultPath)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Save Hermes launch paths") { state.saveHermesExecutable() }
+                        .buttonStyle(.borderless)
                     Picker("Interval", selection: $state.interval) {
                         ForEach(PreviewInterval.allCases, id: \.self) { interval in
                             Text(interval.label).tag(interval)
                         }
                     }
-                    Text("Stored locally for this preview only; it does not schedule capture or notifications.")
+                    Text("xCreen launches its bundled runtime/xcreen_gateway.py with this Python, which registers the xcreen tools and starts Hermes's raw tui_gateway. Only the xCreen session uses them; no profile or model default is changed. With a vault set, the agent may append sourced facts to existing Daily notes.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -174,4 +368,36 @@ MainActor.assumeIsolated {
     let delegate = AppDelegate()
     app.delegate = delegate
     withExtendedLifetime(delegate) { app.run() }
+}
+
+
+/// Screenshots the reply cited, shown like email attachments under the answer.
+struct EvidenceAppendix: View {
+    let images: [EvidenceImage]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Divider()
+            Text("Attachments · \(images.count)").font(.caption).foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(images) { image in
+                        Button { NSWorkspace.shared.open(image.fileURL) } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let preview = NSImage(contentsOf: image.fileURL) {
+                                    Image(nsImage: preview).resizable().aspectRatio(contentMode: .fill)
+                                        .frame(width: 120, height: 76).clipShape(RoundedRectangle(cornerRadius: 6))
+                                } else {
+                                    RoundedRectangle(cornerRadius: 6).fill(.quaternary).frame(width: 120, height: 76)
+                                }
+                                Text(image.timestamp.formatted(date: .omitted, time: .standard)).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open screenshot from \(image.timestamp.formatted())")
+                    }
+                }
+            }
+        }
+    }
 }
