@@ -6,19 +6,18 @@ import XCreenCore
     /// Single switch: off = consent to capture, on = no screenshots, no OCR, no automatic turns.
     @Published var integrity: Bool {
         didSet {
-            preview.setIntegrityMode(integrity)
+            defaults.set(integrity, forKey: "xcreen.integrity")
             guard integrity != oldValue else { return }
             let value = integrity
             log.write(.app, "integrity \(value ? "on" : "off")")
             log.updateStatus(["integrity": value ? "on" : "off"])
-            Task { [sessionRuntime] in await sessionRuntime.setIntegrity(value) }
-            if value { captureService?.pause() } else { captureService?.enableAfterExplicitConsent() }
+            integrityTransition = controller.setIntegrity(value)
+            if value { captureService?.pause() }
+            else if captureService?.enableAfterExplicitConsent() != true { integrity = true }
         }
     }
-    @Published var modelSelection: PreviewModelSelection { didSet { preview.setModelSelection(modelSelection) } }
-    @Published var interval: PreviewInterval { didSet { preview.setInterval(interval) } }
     @Published var query = ""
-    @Published var submissionMessage = "" { didSet { if !submissionMessage.isEmpty, submissionMessage != oldValue { log.write(.app, submissionMessage) } } }
+    @Published var submissionMessage = ""
     @Published var showSettings = false
     @Published var hermesPython = ""
     @Published var hermesRoot = ""
@@ -29,30 +28,45 @@ import XCreenCore
     @Published var selectedHermesModel = ""
     @Published var appendix: [EvidenceImage] = []
 
-    private var preview: DisconnectedPreviewState
     private let gateway = HermesGateway()
-    private let sessionRuntime: HermesSessionRuntime
+    private let controller: SharedSessionController
+    private var sessionRuntime: HermesSessionRuntime { controller.runtime }
+    private var integrityTransition: Task<Void, Never>?
+    private var manualPresentationID: UUID?
     private var evidenceStore: EvidenceStore?
     private var captureService: CaptureService?
     private var storedSessionID = ""
     private var runtimeSessionID = ""
-    private var observingGateway = false
+
     private var inFlightBatches: Set<String> = []
     private let defaults: UserDefaults
     private let log = ActivityLog.shared
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        sessionRuntime = HermesSessionRuntime(gateway: gateway, records: UserDefaultsHermesSessionRecordStore(defaults: defaults))
-        let savedPreview = DisconnectedPreviewState(defaults: defaults)
-        preview = savedPreview
-        integrity = savedPreview.integrityMode
-        modelSelection = savedPreview.modelSelection
-        interval = savedPreview.interval
+        controller = SharedSessionController(gateway: gateway, records: UserDefaultsHermesSessionRecordStore(defaults: defaults))
+        integrity = true // Every launch requires renewed explicit capture consent.
         hermesPython = defaults.string(forKey: "xcreen.hermes.python") ?? ""
         hermesRoot = defaults.string(forKey: "xcreen.hermes.root") ?? ""
         vaultPath = defaults.string(forKey: "xcreen.vault.path") ?? ""
         storedSessionID = defaults.string(forKey: "xcreen.hermes.session") ?? ""
+        controller.connectionChanged = { [weak self] value in
+            guard let self else { return }
+            self.connected = value
+            self.log.updateStatus(["hermes": value ? "connected" : "disconnected"])
+        }
+        controller.eventReceived = { [weak self] event in self?.receiveGatewayEvent(event) }
+        controller.connectionReady = { [weak self] identity, inventory in
+            guard let self else { return }
+            self.storedSessionID = identity.storedSessionID
+            self.runtimeSessionID = identity.runtimeSessionID
+            self.hermesModels = (try? HermesModelRoute.decodeInventory(inventory)) ?? []
+            self.applyInventorySelection(inventory)
+            self.submissionMessage = "Hermes connected."
+            self.log.write(.gateway, "connected session=\(identity.storedSessionID) runtime=\(identity.runtimeSessionID)")
+            self.log.updateStatus(["hermes": "connected", "session": identity.storedSessionID])
+            Task { await self.submitPendingBatches() }
+        }
         log.write(.app, "started pid=\(ProcessInfo.processInfo.processIdentifier)")
         log.updateStatus(["app": "running", "hermes": "connecting", "integrity": integrity ? "on" : "off", "capture": "paused"])
         if hermesPython.isEmpty || hermesRoot.isEmpty || vaultPath.isEmpty { autodetectLocalSetup(overwrite: false) }
@@ -79,54 +93,31 @@ import XCreenCore
     var canAsk: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     func submitQuestion() {
-        let question = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty else { return }
-        guard !hermesPython.isEmpty, !hermesRoot.isEmpty else {
-            submissionMessage = "Hermes is unavailable — configure local Python and the Hermes source root before sending."
-            return
-        }
-        streamedReply = ""
+        runControl(["command": "ask", "question": query.trimmingCharacters(in: .whitespacesAndNewlines)])
+    }
+
+    func runControl(_ fields: [String: String]) {
         Task { [weak self] in
             guard let self else { return }
-            do {
-                try await connectIfNeeded()
-                submissionMessage = "Asking Hermes…"
-                try await sessionRuntime.submitManual(XCreenPrompts.manual(question: question))
-                submissionMessage = "Hermes response complete."
-            } catch {
-                submissionMessage = "Hermes did not answer: \(error.localizedDescription)"
-            }
+            do { _ = try await control(LocalControlCommand.decode(JSONSerialization.data(withJSONObject: fields))) }
+            catch { submissionMessage = error.localizedDescription }
         }
     }
 
     /// Opens (or resumes) the xCreen session. Connecting runs no model; it only starts the
     /// local gateway, resumes the stored session and loads the model list.
+    private func frozenLaunch() -> HermesGatewayLaunch {
+        .bundled(python: hermesPython, hermesRoot: hermesRoot, evidenceRoot: EvidenceStore.defaultRoot.path, vault: vaultPath.isEmpty ? nil : vaultPath)
+    }
+
     func connectIfNeeded() async throws {
-        guard !connected else { return }
-        guard !hermesPython.isEmpty, !hermesRoot.isEmpty else { throw HermesGatewayError.invalidLaunch }
-        submissionMessage = "Connecting to Hermes…"
-        do {
-            try await sessionRuntime.connect(launch: .bundled(python: hermesPython, hermesRoot: hermesRoot, evidenceRoot: EvidenceStore.defaultRoot.path, vault: vaultPath.isEmpty ? nil : vaultPath))
-        } catch {
-            connected = false
+        let launch = frozenLaunch()
+        do { try await controller.connect(launch: launch) }
+        catch {
             log.write(.error, "gateway connect failed: \(error)")
-            log.updateStatus(["hermes": "failed: \(error.localizedDescription)"])
             submissionMessage = "Hermes connection failed: \(error.localizedDescription)"
             throw error
         }
-        observeGatewayIfNeeded()
-        if let identity = await sessionRuntime.currentSession() {
-            storedSessionID = identity.storedSessionID
-            runtimeSessionID = identity.runtimeSessionID
-        }
-        connected = true
-        log.write(.gateway, "connected session=\(storedSessionID) runtime=\(runtimeSessionID)")
-        log.updateStatus(["hermes": "connected", "session": storedSessionID])
-        submissionMessage = "Hermes connected."
-        if let inventory = try? await sessionRuntime.modelOptions() {
-            hermesModels = (try? HermesModelRoute.decodeInventory(inventory)) ?? []
-        }
-        await submitPendingBatches()
     }
 
     func connectOnLaunch() {
@@ -134,21 +125,9 @@ import XCreenCore
         Task { [weak self] in try? await self?.connectIfNeeded() }
     }
 
-    private func observeGatewayIfNeeded() {
-        guard !observingGateway else { return }
-        observingGateway = true
-        Task { [weak self] in
-            guard let self else { return }
-            let events = await gateway.events()
-            for await event in events {
-                receiveGatewayEvent(event)
-            }
-            observingGateway = false
-            connected = false
-            log.write(.gateway, "disconnected")
-            log.updateStatus(["hermes": "disconnected"])
-            submissionMessage = "Hermes gateway stopped. It reconnects on your next question."
-        }
+    private func applyInventorySelection(_ data: Data) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let provider = root["provider"] as? String, let model = root["model"] as? String else { return }
+        selectedHermesModel = "\(provider)::\(model)"
     }
 
     private func receiveGatewayEvent(_ event: HermesGatewayEvent) {
@@ -161,14 +140,12 @@ import XCreenCore
         case "message.start": streamedReply = ""; appendix = []
         case "message.delta", "message.interim":
             streamedReply += payload["text"] as? String ?? ""
-        case "message.complete": submissionMessage = "Hermes response complete."; resolveAppendix()
+        case "message.complete":
+            if let text = payload["text"] as? String, !text.isEmpty { streamedReply = text }
+            submissionMessage = "Hermes response complete."; resolveAppendix()
+
         case "session.info":
-            if let usage = payload["usage"] as? [String: Any] {
-                Task { [weak self] in
-                    guard let self else { return }
-                    await self.sessionRuntime.updateContextUsage(tokens: usage["context_used"] as? Int ?? 0, limit: usage["context_max"] as? Int)
-                }
-            }
+            if let provider = payload["provider"] as? String, let model = payload["model"] as? String { selectedHermesModel = "\(provider)::\(model)" }
         case "error": submissionMessage = "Hermes reported an error — no answer was claimed."
         default: break
         }
@@ -177,47 +154,57 @@ import XCreenCore
     /// Fills Python, Hermes root and vault from the installed `hermes` launcher and Obsidian.
     /// Without `overwrite`, values the user already set are kept.
     func autodetectLocalSetup(overwrite: Bool = true) {
+        Task { do { try await detectAndSave(overwrite: overwrite) } catch { submissionMessage = error.localizedDescription } }
+    }
+
+    private func detectAndSave(overwrite: Bool) async throws {
         submissionMessage = "Detecting Hermes and Obsidian vault…"
-        Task { [weak self] in
-            let (hermes, vault) = await Task.detached { (LocalSetupDetector.detectHermes(), LocalSetupDetector.detectVault()) }.value
-            guard let self else { return }
-            if let hermes {
-                if overwrite || hermesPython.isEmpty { hermesPython = hermes.python }
-                if overwrite || hermesRoot.isEmpty { hermesRoot = hermes.hermesRoot }
-            }
-            if let vault, overwrite || vaultPath.isEmpty { vaultPath = vault }
-            saveHermesExecutable()
-            submissionMessage = hermes == nil
-                ? "Hermes not found. Install it or fill the paths in Local settings."
-                : "Detected Hermes\(vault == nil ? "" : " and vault")."
-        }
+        do {
+            try await controller.configure(prepare: {
+                let existing = LocalControlSettings(python: self.hermesPython, root: self.hermesRoot, vault: self.vaultPath)
+                let (hermes, vault) = await Task.detached { (LocalSetupDetector.detectHermes(), LocalSetupDetector.detectVault()) }.value
+                let settings = LocalControlSettings(
+                    python: (overwrite || existing.python.isEmpty) ? hermes?.python ?? existing.python : existing.python,
+                    root: (overwrite || existing.root.isEmpty) ? hermes?.hermesRoot ?? existing.root : existing.root,
+                    vault: (overwrite || existing.vault.isEmpty) ? vault ?? existing.vault : existing.vault)
+                let launch = HermesGatewayLaunch.bundled(python: settings.python, hermesRoot: settings.root, evidenceRoot: EvidenceStore.defaultRoot.path, vault: settings.vault.isEmpty ? nil : settings.vault)
+                return (launch, { self.applySettings(settings) })
+            })
+            submissionMessage = "Detected local setup."
+        } catch { throw LocalControlError.failed("Detected settings saved; reconnect failed: \(error.localizedDescription)") }
+    }
+
+    private func applySettings(_ settings: LocalControlSettings) {
+        hermesPython = settings.python; hermesRoot = settings.root; vaultPath = settings.vault
+        defaults.set(settings.python, forKey: "xcreen.hermes.python")
+        defaults.set(settings.root, forKey: "xcreen.hermes.root")
+        defaults.set(settings.vault, forKey: "xcreen.vault.path")
     }
 
     func saveHermesExecutable() {
-        defaults.set(hermesPython.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "xcreen.hermes.python")
-        defaults.set(hermesRoot.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "xcreen.hermes.root")
-        defaults.set(vaultPath.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "xcreen.vault.path")
-        // New paths need a fresh gateway process.
-        Task { [weak self] in
-            guard let self else { return }
-            await sessionRuntime.disconnect()
-            connected = false
-            connectOnLaunch()
-        }
+        let settings = LocalControlSettings(python: hermesPython, root: hermesRoot, vault: vaultPath)
+        Task { do { try await persistSettings(settings) } catch { submissionMessage = error.localizedDescription } }
+    }
+
+    private func persistSettings(_ settings: LocalControlSettings? = nil) async throws {
+        let frozen = settings ?? LocalControlSettings(python: hermesPython, root: hermesRoot, vault: vaultPath)
+        let python = frozen.python.trimmingCharacters(in: .whitespacesAndNewlines)
+        let root = frozen.root.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vault = frozen.vault.trimmingCharacters(in: .whitespacesAndNewlines)
+        let launch = HermesGatewayLaunch.bundled(python: python, hermesRoot: root, evidenceRoot: EvidenceStore.defaultRoot.path, vault: vault.isEmpty ? nil : vault)
+        do {
+            try await controller.configure(launch: launch) {
+                self.hermesPython = python; self.hermesRoot = root; self.vaultPath = vault
+                self.defaults.set(python, forKey: "xcreen.hermes.python")
+                self.defaults.set(root, forKey: "xcreen.hermes.root")
+                self.defaults.set(vault, forKey: "xcreen.vault.path")
+            }
+        } catch { throw LocalControlError.failed("Settings saved; reconnect failed: \(error.localizedDescription)") }
     }
 
     func switchHermesModel(_ routeID: String) {
         guard let route = hermesModels.first(where: { $0.id == routeID }) else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await sessionRuntime.switchModel(model: route.model, provider: route.provider)
-                selectedHermesModel = route.id
-                log.write(.model, "switched to \(route.provider)/\(route.model)")
-                log.updateStatus(["model": "\(route.provider)/\(route.model)"])
-                submissionMessage = "Switched this xCreen session to \(route.provider) / \(route.model)."
-            } catch { submissionMessage = "Hermes could not switch this session model; defaults were not changed." }
-        }
+        runControl(["command": "model", "provider": route.provider, "model": route.model])
     }
 
     private func submit(batch: CaptureBatch) {
@@ -251,11 +238,14 @@ import XCreenCore
     /// Resolves `xcreen-image:<id>` references through the evidence store only.
     private func resolveAppendix() {
         let ids = EvidenceReferences.imageIDs(in: streamedReply)
+        let reply = streamedReply
+        let generation = controller.generation
         guard let evidenceStore, !ids.isEmpty else { appendix = []; return }
         Task { [weak self] in
             var found: [EvidenceImage] = []
             for id in ids { if let image = try? await evidenceStore.image(id: id) { found.append(image) } }
-            self?.appendix = found
+            guard let self, self.controller.generation == generation, self.streamedReply == reply else { return }
+            self.appendix = found
         }
     }
 
@@ -263,7 +253,105 @@ import XCreenCore
         query = value
         submissionMessage = ""
     }
+
+    /// The sole command surface for both the tray and the private local CLI.  It only
+    /// calls the same methods and session runtime the visible controls use.
+    func control(_ command: LocalControlCommand) async throws -> LocalControlResponse {
+        switch command.name {
+        case .status: break
+        case .history:
+            let data = try await controller.history(launch: frozenLaunch())
+            guard data.count <= 500_000 else { throw LocalControlError.unavailable("history exceeds local response limit") }
+            return .ok(snapshot(), reply: String(data: data, encoding: .utf8))
+        case .integrity:
+            if command.value == nil { break }
+            guard let value = command.value, ["on", "off"].contains(value) else { throw LocalControlError.invalidRequest("integrity value must be on or off") }
+            // Off is explicit user consent, equivalent to the tray's toggle. Capture still
+            // fails closed when macOS permission or state guards reject it.
+            integrity = value == "on"
+            await integrityTransition?.value
+            if value == "off", integrity { throw LocalControlError.unavailable(submissionMessage) }
+        case .connect: try await connectIfNeeded()
+        case .disconnect:
+            await controller.disconnect(); submissionMessage = "Hermes disconnected."
+        case .reconnect:
+            try await controller.reconnect(launch: frozenLaunch())
+        case .models:
+            try await controller.readModelOptions(launch: frozenLaunch()) { inventory in
+                self.hermesModels = try HermesModelRoute.decodeInventory(inventory)
+                self.applyInventorySelection(inventory)
+            }
+        case .model:
+            guard let provider = command.provider, let model = command.model, hermesModels.contains(where: { $0.provider == provider && $0.model == model }) else { throw LocalControlError.invalidRequest("unknown configured provider/model") }
+            try await controller.switchModel(model: model, provider: provider) { self.selectedHermesModel = "\(provider)::\(model)" }
+        case .settings:
+            if let value = command.value {
+                let pieces = value.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+                guard pieces.count == 2 else { throw LocalControlError.invalidRequest("settings value must be key=value") }
+                guard ["python", "root", "vault"].contains(pieces[0]) else { throw LocalControlError.invalidRequest("unknown setting") }
+                do {
+                    try await controller.configure(prepare: {
+                        var settings = LocalControlSettings(python: self.hermesPython, root: self.hermesRoot, vault: self.vaultPath)
+                        let value = pieces[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                        switch pieces[0] { case "python": settings.python = value; case "root": settings.root = value; default: settings.vault = value }
+                        let launch = HermesGatewayLaunch.bundled(python: settings.python, hermesRoot: settings.root, evidenceRoot: EvidenceStore.defaultRoot.path, vault: settings.vault.isEmpty ? nil : settings.vault)
+                        return (launch, { self.applySettings(settings) })
+                    })
+                } catch { throw LocalControlError.failed("Settings saved; reconnect failed: \(error.localizedDescription)") }
+            }
+        case .autodetect: try await detectAndSave(overwrite: true)
+        case .ask:
+            guard let question = command.question else { throw LocalControlError.invalidRequest("ask needs question") }
+            let answer = try controller.admitManual(XCreenPrompts.manual(question: question), launch: frozenLaunch())
+            let presentationID = UUID(); manualPresentationID = presentationID
+            streamedReply = ""; submissionMessage = "Asking Hermes…"
+            query = question
+
+            let completion = TurnCompletion()
+            Task { @MainActor in
+                do {
+                    completion.reply = try await answer.value
+                    if self.manualPresentationID == presentationID { self.submissionMessage = "Hermes response complete." }
+                } catch {
+                    completion.error = error
+                    if self.manualPresentationID == presentationID { self.submissionMessage = "Hermes did not answer: \(error.localizedDescription)" }
+                }
+                completion.done = true
+            }
+            if let wait = command.waitMilliseconds, wait > 0 {
+                let deadline = ContinuousClock.now + .milliseconds(wait)
+                while !completion.done && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+                if let error = completion.error { throw error }
+                if !completion.done { return .ok(snapshot(), reply: nil) }
+                return .ok(snapshot(), reply: completion.reply)
+            }
+            return .ok(snapshot(), reply: nil)
+        case .cancel: try await controller.cancelManual(); submissionMessage = "Hermes question cancellation requested."
+        case .images:
+            if let id = command.value {
+                guard let image = appendix.first(where: { $0.id == id }) else { throw LocalControlError.invalidRequest("unknown reply image") }
+                guard NSWorkspace.shared.open(image.fileURL) else { throw LocalControlError.failed("image could not be opened") }
+            }
+        case .panel:
+            if command.value == "hide" { AppDelegate.shared?.popover.performClose(nil) } else { AppDelegate.shared?.showPanel() }
+        case .quit:
+            integrity = true
+            await integrityTransition?.value
+            await controller.disconnect()
+            Task { try? await Task.sleep(for: .milliseconds(300)); NSApplication.shared.terminate(nil) }
+        }
+        return .ok(snapshot())
+    }
+
+    private func snapshot() -> LocalControlSnapshot {
+        let routes = hermesModels.map { LocalControlModel(provider: $0.provider, model: $0.model) }
+        let current = hermesModels.first(where: { $0.id == selectedHermesModel }).map { LocalControlModel(provider: $0.provider, model: $0.model) }
+        let images = appendix.map { LocalControlImage(id: $0.id, timestamp: $0.timestamp) }
+        return .init(app: "running", connected: connected, integrity: integrity, capture: integrity ? "paused" : "guarded", message: submissionMessage, models: routes, currentModel: current, settings: .init(python: hermesPython, root: hermesRoot, vault: vaultPath), images: images)
+    }
 }
+
+@MainActor private final class TurnCompletion { var done = false; var error: Error?; var reply: String? }
 
 struct Panel: View {
     @ObservedObject var state: AppState
@@ -295,27 +383,12 @@ struct Panel: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Hermes route")
-                    .font(.subheadline.weight(.medium))
-                Picker("Route preference", selection: $state.modelSelection) {
-                    ForEach(PreviewModelSelection.allCases, id: \.self) { selection in
-                        Text(selection.label).tag(selection)
-                    }
-                }
-                .labelsHidden()
-                .accessibilityLabel("Local route preference")
-                Text("The session picker is populated only by Hermes after a connection; this preference never changes Hermes defaults.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             if !state.hermesModels.isEmpty {
-                Picker("Hermes session model", selection: $state.selectedHermesModel) {
+                Picker("Hermes session model", selection: Binding(get: { state.selectedHermesModel }, set: { state.switchHermesModel($0) })) {
                     Text("Choose provider/model").tag("")
                     ForEach(state.hermesModels) { route in Text("\(route.provider) · \(route.model)").tag(route.id) }
                 }
-                .onChange(of: state.selectedHermesModel) { _, new in state.switchHermesModel(new) }
+
                 .accessibilityHint("Uses Hermes's provider-aware inventory and changes only the xCreen session.")
             }
 
@@ -327,6 +400,7 @@ struct Panel: View {
                     Button("Ask") { state.submitQuestion() }
                         .keyboardShortcut(.defaultAction)
                         .disabled(!state.canAsk)
+                    Button("Cancel") { state.runControl(["command": "cancel"]) }
                     Spacer()
                     Text(state.connected ? "Persistent xCreen session" : "No request sent")
                         .font(.caption)
@@ -365,11 +439,6 @@ struct Panel: View {
                         Button("Save") { state.saveHermesExecutable() }
                     }
                     .buttonStyle(.borderless)
-                    Picker("Interval", selection: $state.interval) {
-                        ForEach(PreviewInterval.allCases, id: \.self) { interval in
-                            Text(interval.label).tag(interval)
-                        }
-                    }
                     Text("xCreen launches its bundled runtime/xcreen_gateway.py with this Python, which registers the xcreen tools and starts Hermes's raw tui_gateway. Only the xCreen session uses them; no profile or model default is changed. With a vault set, the agent may append sourced facts to existing Daily notes.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -383,7 +452,8 @@ struct Panel: View {
                 Circle().fill(Color.gray).frame(width: 8, height: 8)
                 Text(state.status).font(.caption.weight(.medium))
                 Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }
+                Button(state.connected ? "Disconnect" : "Connect") { state.runControl(["command": state.connected ? "disconnect" : "connect"]) }
+                Button("Quit") { state.runControl(["command": "quit"]) }
                     .buttonStyle(.borderless)
             }
         }
@@ -400,11 +470,19 @@ struct Panel: View {
 }
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
-    let state = AppState()
+    static weak var shared: AppDelegate?
+    lazy var state = AppState()
     var item: NSStatusItem!
     let popover = NSPopover()
+    private var controlServer: LocalControlServer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
+        do { controlServer = try LocalControlServer { [weak self] command in
+            guard let self else { throw LocalControlError.unavailable("app stopped") }
+            return try await self.state.control(command)
+        } }
+        catch { NSApplication.shared.terminate(nil); return }
         NSApp.setActivationPolicy(.accessory)
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "xCreen")
@@ -412,6 +490,7 @@ struct Panel: View {
         item.button?.action = #selector(toggle)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: Panel(state: state))
+
     }
 
     @objc func toggle() {
@@ -423,6 +502,9 @@ struct Panel: View {
             NSApp.activate(ignoringOtherApps: true)
         }
     }
+
+    func showPanel() { if !popover.isShown { toggle() } }
+    func applicationWillTerminate(_ notification: Notification) { controlServer?.stop() }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where AskShortcut.query(url) != nil {
