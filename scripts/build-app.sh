@@ -43,5 +43,7 @@ if METADATA_TOOL="$(xcrun --find appintentsmetadataprocessor 2>/dev/null)"; then
       --force
   fi
 fi
-codesign --force --sign - "$APP"
-printf 'Built %s/dist/xCreen.app (ad-hoc signed, not notarized)\n' "$PWD"
+# Ad-hoc signatures change every build, so macOS forgets the Screen Recording grant.
+# Set XCREEN_SIGN_IDENTITY (e.g. an "Apple Development" identity) to keep it.
+codesign --force --sign "${XCREEN_SIGN_IDENTITY:--}" "$APP"
+printf 'Built %s/dist/xCreen.app (signed: %s, not notarized)\n' "$PWD" "${XCREEN_SIGN_IDENTITY:-ad-hoc}"

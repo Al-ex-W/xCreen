@@ -3,7 +3,16 @@ import SwiftUI
 import XCreenCore
 
 @MainActor final class AppState: ObservableObject {
-    @Published var integrity: Bool { didSet { preview.setIntegrityMode(integrity) } }
+    /// Single switch: off = consent to capture, on = no screenshots, no OCR, no automatic turns.
+    @Published var integrity: Bool {
+        didSet {
+            preview.setIntegrityMode(integrity)
+            guard integrity != oldValue else { return }
+            let value = integrity
+            Task { [sessionRuntime] in await sessionRuntime.setIntegrity(value) }
+            if value { captureService?.pause() } else { captureService?.enableAfterExplicitConsent() }
+        }
+    }
     @Published var modelSelection: PreviewModelSelection { didSet { preview.setModelSelection(modelSelection) } }
     @Published var interval: PreviewInterval { didSet { preview.setInterval(interval) } }
     @Published var query = ""
@@ -183,14 +192,6 @@ import XCreenCore
         }
     }
 
-    func enableCaptureAfterExplicitConsent() {
-        guard !integrity else {
-            submissionMessage = "Turn off Integrity mode first, then explicitly enable capture."
-            return
-        }
-        guard captureService?.enableAfterExplicitConsent() == true else { return }
-    }
-
     func switchHermesModel(_ routeID: String) {
         guard let route = hermesModels.first(where: { $0.id == routeID }) else { return }
         Task { [weak self] in
@@ -269,9 +270,9 @@ struct Panel: View {
             Toggle("Integrity mode", isOn: $state.integrity)
                 .toggleStyle(.switch)
                 .accessibilityHint("Integrity pauses capture and automatic work.")
-            Button("Enable capture after explicit consent") { state.enableCaptureAfterExplicitConsent() }
-                .disabled(state.integrity)
-            Text("Capture is paused by default. This build fails closed because it cannot safely prove the current lock state.")
+            Text(state.integrity
+                 ? "On: no screenshots, no OCR, nothing sent automatically."
+                 : "Off: OCR every second, a screenshot every 10 s, a batch to Hermes every 5 active minutes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

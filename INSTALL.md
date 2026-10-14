@@ -52,9 +52,12 @@ point at existing paths. The vault key is absent if no vault was found.
 
 Tell the user to do these. Do not click through permission prompts for them.
 
-1. **Screen Recording**: System Settings → Privacy & Security → Screen Recording → enable
-   xCreen. macOS may ask to quit and reopen the app.
-2. **Turn Integrity mode off** in the menu-bar panel. Capture starts only after this.
+1. **Turn Integrity mode off** in the menu-bar panel. The first time, macOS asks for
+   Screen Recording permission (or xCreen opens that settings pane). After the user allows
+   xCreen, they turn Integrity off again and capture starts.
+2. Grants survive reinstalls only when the app has a stable signature. `install.sh` uses
+   the first "Apple Development" identity it finds, or `XCREEN_SIGN_IDENTITY`. Ad-hoc
+   builds lose the grant on every rebuild.
 3. **Optional: Spotlight.** ⌘-Space, then type a question. "Ask xCreen" appears as an
    App Shortcut.
 4. **Optional: Daily notes.** The vault writer only appends to a `Daily/YYYY-MM-DD.md`

@@ -57,6 +57,11 @@ PY
 )"
 fi
 
+# A stable signing identity keeps the Screen Recording grant across reinstalls.
+if [[ -z "${XCREEN_SIGN_IDENTITY:-}" ]]; then
+  XCREEN_SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')"
+  export XCREEN_SIGN_IDENTITY
+fi
 bash scripts/build-app.sh
 pkill -x xCreen 2>/dev/null || true
 mkdir -p "$HOME/Applications"
