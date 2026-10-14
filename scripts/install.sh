@@ -73,7 +73,8 @@ defaults write "$DOMAIN" xcreen.hermes.root -string "$ROOT"
 [[ -n "$VAULT" ]] && defaults write "$DOMAIN" xcreen.vault.path -string "$VAULT"
 
 mkdir -p "$HOME/.local/bin"
-ln -sf "$PWD/bin/xcreen" "$HOME/.local/bin/xcreen"
+rm -f "$HOME/.local/bin/xcreen"
+install -m 755 bin/xcreen "$HOME/.local/bin/xcreen"
 
 echo "Installed  $DEST"
 echo "CLI        ~/.local/bin/xcreen  (xcreen status, xcreen logs)"
