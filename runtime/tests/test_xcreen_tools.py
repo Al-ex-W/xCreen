@@ -16,7 +16,7 @@ def swift_seconds(value):
 
 class XCreenToolsTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(dir=str(Path(os.environ.get("TMPDIR", tempfile.gettempdir())).resolve()))
         self.root = Path(self.tmp.name) / "evidence"
         (self.root / "images").mkdir(parents=True)
         self.now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -50,6 +50,47 @@ class XCreenToolsTests(unittest.TestCase):
         data_url = result["content"][1]["image_url"]["url"]
         self.assertTrue(data_url.startswith("data:image/png;base64,"))
         self.assertEqual(base64.b64decode(data_url.split(",", 1)[1]), self.image.read_bytes())
+
+    def test_swift_file_url_with_percent_encoded_spaces(self):
+        spaced = self.root / "images" / "frame with space.png"
+        self.image.rename(spaced)
+        index = json.loads((self.root / "index.json").read_text())
+        index["images"][0]["fileURL"] = spaced.as_uri()
+        (self.root / "index.json").write_text(json.dumps(index))
+        result = EvidenceReader(self.root, now=lambda: self.now).view_image("image-a")
+        self.assertEqual(base64.b64decode(result["content"][1]["image_url"]["url"].split(",", 1)[1]), spaced.read_bytes())
+
+    def test_search_matches_unicode_beyond_snippet(self):
+        index = json.loads((self.root / "index.json").read_text())
+        index["ocr"][0]["text"] = "x" * 6000 + " distinctive Cafe\u0301 STRASSE"
+        (self.root / "index.json").write_text(json.dumps(index))
+        rows = EvidenceReader(self.root, now=lambda: self.now).search_ocr("distinctive café straße")
+        self.assertEqual(len(rows), 1)
+        self.assertLessEqual(len(rows[0]["text"]), 4000)
+        self.assertIn("distinctive", rows[0]["text"])
+
+    def test_rejects_unsafe_file_urls(self):
+        reader = EvidenceReader(self.root, now=lambda: self.now)
+        for raw in ["file://remote" + str(self.image), self.image.as_uri() + "?x=1", self.image.as_uri() + "#fragment", self.image.as_uri().replace("frame.png", "%2e%2e/images/frame.png"), "https://host/frame.png", self.image.as_uri().replace("frame.png", "%ZZ.png")]:
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                reader._image_path({"fileURL": raw})
+
+    def test_recent_ocr_range_and_coverage_are_explicit(self):
+        reader = EvidenceReader(self.root, now=lambda: self.now)
+        result = reader.recent_ocr(limit=1, start=(self.now - timedelta(seconds=1)).isoformat(), end=self.now.isoformat())
+        self.assertEqual([r["id"] for r in result["rows"]], ["ocr-a"])
+        self.assertEqual(result["coverage"]["latest_ocr"]["utc"], self.now.isoformat().replace("+00:00", "Z"))
+        self.assertIn("+", result["rows"][0]["timestamp_local"])
+        self.assertEqual(result["coverage"]["capture_state"], "unknown")
+        self.assertIn("not proof", result["coverage"]["limitations"])
+        (self.root / "capture-status.json").write_text(json.dumps({"capture": "gap", "capture_reason": "excluded", "desired_integrity": "off", "updated": self.now.isoformat()}))
+        status = reader.coverage()
+        self.assertEqual(status["capture_state"], "gap")
+        self.assertEqual(status["desired_integrity"], "off")
+        self.assertEqual(status["capture_reason"], "excluded")
+        self.assertEqual(reader.recent_ocr(start=(self.now + timedelta(seconds=1)).isoformat())["rows"], [])
+        with self.assertRaises(ValueError):
+            reader.recent_ocr(start=self.now.isoformat(), end=(self.now - timedelta(seconds=1)).isoformat())
 
     def test_rejects_symlinked_image(self):
         outside = Path(self.tmp.name) / "outside.png"
@@ -85,6 +126,19 @@ class XCreenToolsTests(unittest.TestCase):
         self.assertEqual(writer.append({"fact": "", "source_ids": []}), {"written": False, "reason": "no_useful_fact"})
         with self.assertRaises(ValueError):
             writer.append({"fact": "x", "source_ids": ["ocr-old"]})
+
+    def test_registered_timeline_and_coverage_handlers_use_synthetic_store(self):
+        class Registry:
+            def __init__(self):
+                self.handlers = {}
+            def register(self, name, toolset, schema, handler, **kwargs):
+                self.handlers[name] = handler
+        registry = Registry()
+        register_xcreen_tools(EvidenceReader(self.root, now=lambda: self.now), None, registry=registry)
+        result = json.loads(registry.handlers["xcreen_recent_ocr"]({"limit": 1}))
+        self.assertEqual(result["rows"][0]["id"], "ocr-a")
+        self.assertEqual(json.loads(registry.handlers["xcreen_coverage"]({}))["capture_state"], "unknown")
+        self.assertIn("error", json.loads(registry.handlers["xcreen_recent_ocr"]({"limit": 0})))
 
     def test_registers_with_real_registry_contract_when_available(self):
         root = os.environ.get("XCREEN_HERMES_ROOT")

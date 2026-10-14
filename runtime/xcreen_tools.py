@@ -8,9 +8,11 @@ import json
 import mimetypes
 import os
 import re
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlsplit, unquote
 from zoneinfo import ZoneInfo
 
 _APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
@@ -83,6 +85,8 @@ class EvidenceReader:
     def _ocr_row(self, record: dict) -> dict:
         text = str(record.get("text", ""))[:_MAX_TEXT]
         return {"id": _safe_id(record.get("id")), "timestamp": _stamp(_utc(record["timestamp"])),
+                "timestamp_local": _utc(record["timestamp"]).astimezone().isoformat(timespec="seconds"),
+                "text_truncated": len(str(record.get("text", ""))) > _MAX_TEXT,
                 "text": text, "app": str(record.get("app", ""))[:256], "title": str(record.get("title", ""))[:512]}
 
     def search_ocr(self, query: object, limit: object = _MAX_RESULTS) -> list[dict]:
@@ -90,16 +94,63 @@ class EvidenceReader:
             raise ValueError("query must be non-empty and bounded")
         if not isinstance(limit, int) or isinstance(limit, bool):
             raise ValueError("limit must be an integer")
-        terms = query.lower().split()[:8]
+        normalize = lambda text: unicodedata.normalize("NFKC", text).casefold()
+        terms = normalize(query).split()[:8]
         rows = []
         for record in self._records("ocr"):
             try:
                 row = self._ocr_row(record)
             except (KeyError, ValueError, TypeError, OverflowError):
                 continue
-            if all(term in (row["text"] + " " + row["app"] + " " + row["title"]).lower() for term in terms):
+            full_text = str(record.get("text", ""))[:12_000]
+            if all(term in normalize(full_text + " " + str(record.get("app", ""))[:256] + " " + str(record.get("title", ""))[:1024]) for term in terms):
+                # Keep a bounded original-text window near a match, not just the first page.
+                position = next((i for i in range(0, len(full_text), 1000) if any(term in normalize(full_text[i:i + 2000]) for term in terms)), 0)
+                row["text"] = full_text[max(0, position - 500):max(0, position - 500) + _MAX_TEXT]
+                row["text_truncated"] = len(full_text) > len(row["text"])
                 rows.append(row)
         return sorted(rows, key=lambda row: row["timestamp"], reverse=True)[:max(0, min(limit, _MAX_RESULTS))]
+
+    def coverage(self) -> dict:
+        def latest(kind):
+            stamps = [_utc(r["timestamp"]) for r in self._records(kind)]
+            if not stamps:
+                return None
+            value = max(stamps)
+            return {"utc": _stamp(value), "local": value.astimezone().isoformat(timespec="seconds")}
+        path = self.root / "capture-status.json"
+        state = {}
+        if path.is_file() and not path.is_symlink() and path.stat().st_size <= 16_000:
+            try:
+                value = json.loads(path.read_text())
+                if isinstance(value, dict):
+                    state = value
+            except (ValueError, OSError):
+                pass
+        return {"latest_ocr": latest("ocr"), "latest_image": latest("images"),
+                "desired_integrity": state.get("desired_integrity", "unknown"),
+                "capture_state": state.get("capture", "unknown"), "capture_reason": state.get("capture_reason", "unknown"),
+                "capture_status_timestamp": state.get("updated"), "excluded": "Browsers, credential/security surfaces and xCreen are excluded app-wide.",
+                "retention_days": 7, "limitations": "Sparse retained snapshots, not continuous coverage. No match is not proof something was never seen. Pauses, exclusions, deduplication and expiry leave gaps; status is a timestamped observation, not live proof."}
+
+    def recent_ocr(self, limit: object = _MAX_RESULTS, start=None, end=None) -> dict:
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= _MAX_RESULTS:
+            raise ValueError("limit must be between 1 and 20")
+        lower, upper = _utc(start) if start is not None else None, _utc(end) if end is not None else None
+        if lower is not None and upper is not None and lower > upper:
+            raise ValueError("start must not follow end")
+        rows = []
+        for record in self._records("ocr"):
+            try:
+                stamp = _utc(record["timestamp"])
+                if (lower is None or stamp >= lower) and (upper is None or stamp <= upper):
+                    row = self._ocr_row(record)
+                    row["timestamp_local"] = stamp.astimezone().isoformat(timespec="seconds")
+                    rows.append(row)
+            except (KeyError, ValueError, TypeError, OverflowError):
+                continue
+        rows.sort(key=lambda r: r["timestamp"], reverse=True)
+        return {"rows": rows[:limit], "has_more": len(rows) > limit, "coverage": self.coverage()}
 
     def images_near(self, timestamp: object, seconds: object = 30) -> list[dict]:
         target = _utc(timestamp)
@@ -127,8 +178,15 @@ class EvidenceReader:
         if not isinstance(raw, str) or not raw:
             raise ValueError("invalid image record")
         images = (self.root / "images").resolve(strict=True)
+        if raw.startswith("file:"):
+            url = urlsplit(raw)
+            if url.scheme != "file" or url.netloc or "?" in raw or "#" in raw or re.search(r"%(?![0-9a-fA-F]{2})", raw):
+                raise ValueError("unsafe image URL")
+            raw = unquote(url.path, errors="strict")
+        if "\x00" in raw or "\\" in raw or any(part in {".", ".."} for part in raw.split("/")):
+            raise ValueError("unsafe image path")
         path = Path(raw)
-        if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        if not path.is_absolute() or any(parent.is_symlink() for parent in path.parents) or path.is_symlink() or not path.is_file():
             raise ValueError("unsafe image path")
         resolved = path.resolve(strict=True)
         if resolved.parent != images or resolved.is_symlink():
@@ -252,7 +310,9 @@ def register_xcreen_tools(evidence: EvidenceReader, writer: VaultDailyWriter | N
                 return json.dumps({"error": str(exc)}, ensure_ascii=False)
         return handler
 
-    registry.register("xcreen_search_ocr", "xcreen", {"description": "Search fresh xCreen OCR evidence by words.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 20}}, "required": ["query"]}}, json_handler(lambda a: evidence.search_ocr(a.get("query"), a.get("limit", _MAX_RESULTS))), max_result_size_chars=16_000)
+    registry.register("xcreen_recent_ocr", "xcreen", {"description": "List latest OCR without guessing search terms, optionally within an inclusive ISO-8601 range; includes timestamped capture coverage and gaps.", "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 20}, "start": {"type": "string"}, "end": {"type": "string"}}}}, json_handler(lambda a: evidence.recent_ocr(a.get("limit", 20), a.get("start"), a.get("end"))), max_result_size_chars=100_000)
+    registry.register("xcreen_coverage", "xcreen", {"description": "Timestamped latest OCR/image, capture state, exclusions and coverage limitations; not continuous/live proof.", "parameters": {"type": "object", "properties": {}}}, json_handler(lambda a: evidence.coverage()))
+    registry.register("xcreen_search_ocr", "xcreen", {"description": "Search bounded persisted OCR, not just returned snippets. No match is not proof it was never seen; check xcreen_coverage.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 20}}, "required": ["query"]}}, json_handler(lambda a: evidence.search_ocr(a.get("query"), a.get("limit", _MAX_RESULTS))), max_result_size_chars=100_000)
     registry.register("xcreen_images_near", "xcreen", {"description": "List xCreen image IDs near an ISO-8601 timestamp.", "parameters": {"type": "object", "properties": {"timestamp": {"type": "string"}, "seconds": {"type": "number", "minimum": 0, "maximum": 86400}}, "required": ["timestamp"]}}, json_handler(lambda a: evidence.images_near(a.get("timestamp"), a.get("seconds", 30))))
     registry.register("xcreen_view_image", "xcreen", {"description": "Load actual pixels for one xCreen evidence image ID.", "parameters": {"type": "object", "properties": {"image_id": {"type": "string"}}, "required": ["image_id"]}}, lambda a, **_: evidence.view_image(a.get("image_id")), max_result_size_chars=_MAX_IMAGE_BYTES * 2)
     def daily(args, **_):

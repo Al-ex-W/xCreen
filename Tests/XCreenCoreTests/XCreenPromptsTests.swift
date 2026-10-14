@@ -4,7 +4,7 @@ import XCTest
 final class XCreenPromptsTests: XCTestCase {
     func testManualPromptNamesEveryXCreenTool() {
         let text = XCreenPrompts.manual(question: "what was I reading?")
-        for tool in ["xcreen_search_ocr", "xcreen_images_near", "xcreen_view_image", "xcreen_daily_note", "tool_call"] {
+        for tool in ["xcreen_recent_ocr", "xcreen_coverage", "UTC", "local", "not proof", "xcreen_search_ocr", "xcreen_images_near", "xcreen_view_image", "xcreen_daily_note", "tool_call"] {
             XCTAssertTrue(text.contains(tool), tool)
         }
         XCTAssertTrue(text.hasSuffix("what was I reading?"))
