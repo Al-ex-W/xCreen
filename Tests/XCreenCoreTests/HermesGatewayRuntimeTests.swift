@@ -15,6 +15,18 @@ final class HermesGatewayRuntimeTests: XCTestCase {
         await gateway.stop()
     }
 
+    /// Real `session.resume` (tui_gateway/methods_session.py) reports the stored id as `resumed`.
+    func testResumeAcceptsRealResumedKey() async throws {
+        let script = try makeGatewayScript(resumeResult: #"{"session_id":"eb085cde","resumed":"stored-xcreen","message_count":15}"#)
+        defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
+        let gateway = HermesGateway(defaultDeadline: 1)
+        try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
+        let identity = try await gateway.open(storedSessionID: "stored-xcreen")
+        XCTAssertEqual(identity.storedID, "stored-xcreen")
+        XCTAssertEqual(identity.runtimeID, "eb085cde")
+        await gateway.stop()
+    }
+
     func testEverySubscriberReceivesGatewayEvents() async throws {
         let script = try makeGatewayScript()
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
@@ -47,7 +59,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
         await gateway.stop()
     }
 
-    private func makeGatewayScript() throws -> URL {
+    private func makeGatewayScript(resumeResult: String = #"{"session_id":"runtime-xcreen","stored_session_id":"stored-xcreen"}"#) throws -> URL {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("xcreen-fake-gateway-\(UUID().uuidString)", isDirectory: true)
         let package = root.appendingPathComponent("tui_gateway", isDirectory: true)
         try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
@@ -55,12 +67,13 @@ final class HermesGatewayRuntimeTests: XCTestCase {
         let url = package.appendingPathComponent("entry.py")
         let source = #"""
 import json, sys
+RESUME = '''\#(resumeResult)'''
 print(json.dumps({"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"change_events":True}}}), flush=True)
 for line in sys.stdin:
     request = json.loads(line)
     method = request.get("method")
     rid = request.get("id")
-    if method == "session.resume": result = {"session_id":"runtime-xcreen","stored_session_id":"stored-xcreen"}
+    if method == "session.resume": result = json.loads(RESUME)
     elif method == "gateway.capabilities": result = {"per_session_exclusive_submit":True}
     elif method == "image.attach_bytes": result = {"attached":True}
     elif method == "prompt.submit": result = {"status":"streaming"}

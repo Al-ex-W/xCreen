@@ -76,6 +76,18 @@ public actor HermesGateway: HermesGatewayTransport {
     private let defaultDeadline: TimeInterval
     private let maximumLineBytes = 1_048_576
 
+    /// Gateway stderr goes to `~/Library/Logs/xCreen/gateway.log` (shown by `xcreen logs --gateway`).
+    private static func stderrSink() -> FileHandle {
+        let url = ActivityLog.defaultDirectory.appendingPathComponent("gateway.log")
+        try? FileManager.default.createDirectory(at: ActivityLog.defaultDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        }
+        guard let handle = try? FileHandle(forWritingTo: url) else { return FileHandle.nullDevice }
+        _ = try? handle.seekToEnd()
+        return handle
+    }
+
     public init(defaultDeadline: TimeInterval = 20) { self.defaultDeadline = min(max(defaultDeadline, 0.1), 60) }
 
     public func start(launch: HermesGatewayLaunch) async throws {
@@ -83,7 +95,7 @@ public actor HermesGateway: HermesGatewayTransport {
         let (executable, arguments, directory) = try launch.processConfiguration()
         let child = Process(); child.executableURL = URL(fileURLWithPath: executable); child.arguments = arguments; child.currentDirectoryURL = directory
         child.environment = ProcessInfo.processInfo.environment.merging(["PYTHONUNBUFFERED": "1"]) { _, new in new }
-        let stdin = Pipe(), stdout = Pipe(); child.standardInput = stdin; child.standardOutput = stdout; child.standardError = FileHandle.nullDevice
+        let stdin = Pipe(), stdout = Pipe(); child.standardInput = stdin; child.standardOutput = stdout; child.standardError = Self.stderrSink()
         child.terminationHandler = { [weak self] _ in Task { await self?.disconnect() } }
         try child.run(); process = child; input = stdin.fileHandleForWriting
         let reader = stdout.fileHandleForReading
@@ -114,7 +126,12 @@ public actor HermesGateway: HermesGatewayTransport {
     public func gatewayCapabilities() async throws -> HermesGatewayCapabilities { let object = try decodeObject(await request("gateway.capabilities", [:])); return .init(perSessionExclusiveSubmit: object["per_session_exclusive_submit"] as? Bool ?? false) }
     public func open(storedSessionID: String?) async throws -> HermesSessionIdentity {
         let reply = try await request(storedSessionID?.isEmpty == false ? "session.resume" : "session.create", storedSessionID?.isEmpty == false ? ["session_id": storedSessionID!, "lazy": true, "inline_images": false] : ["source": "desktop", "title": "xCreen", "hidden": true, "close_on_disconnect": false])
-        let object = try decodeObject(reply); guard let stored = object["stored_session_id"] as? String, !stored.isEmpty, let runtime = object["session_id"] as? String, !runtime.isEmpty else { throw HermesGatewayError.protocolFailure }; return .init(storedID: stored, runtimeID: runtime)
+        let object = try decodeObject(reply)
+        // session.create and live re-attach return `stored_session_id`; a cold session.resume returns `resumed`.
+        let stored = (object["stored_session_id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? object["resumed"] as? String
+        guard let stored, !stored.isEmpty, let runtime = object["session_id"] as? String, !runtime.isEmpty else { throw HermesGatewayError.protocolFailure }
+        if let requested = storedSessionID, !requested.isEmpty, stored != requested { throw HermesGatewayError.protocolFailure }
+        return .init(storedID: stored, runtimeID: runtime)
     }
     public func models(sessionID: String) async throws -> Data { try await request("model.options", ["session_id": sessionID, "explicit_only": false]) }
     public func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { guard validText(model, max: 256), validText(provider, max: 128) else { throw HermesGatewayError.protocolFailure }; return try await request("slash.exec", ["session_id": sessionID, "command": "/model \(model) --provider \(provider) --session"]) }
