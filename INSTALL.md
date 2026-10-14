@@ -41,9 +41,14 @@ detection. You only need the script to install and to pre-fill the settings.
 ## 2. Verify
 
 ```sh
+xcreen status          # app, gateway, Hermes connection, Integrity, capture, evidence counts
+xcreen logs            # live activity log (Ctrl-C to stop)
+xcreen logs --gateway  # Hermes gateway stderr, for connection problems
 defaults read dev.xcreen.app | grep -E 'xcreen\.(hermes|vault)'
-pgrep -lx xCreen
 ```
+
+`xcreen status` must show `hermes connected`. If it shows `failed: …`, read
+`xcreen logs --gateway`.
 
 All three keys (`xcreen.hermes.python`, `xcreen.hermes.root`, `xcreen.vault.path`) should
 point at existing paths. The vault key is absent if no vault was found.
