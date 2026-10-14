@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# xcreen: inspect the running xCreen app from a terminal.
+set -euo pipefail
+
+LOGS="$HOME/Library/Logs/xCreen"
+LOG="$LOGS/xcreen.log"
+STATUS="$LOGS/status.json"
+EVIDENCE="$HOME/Library/Application Support/xCreen/Evidence"
+APP="$HOME/Applications/xCreen.app"
+
+usage() {
+  cat <<'EOF'
+usage: xcreen <command>
+
+  status            app, Hermes connection, Integrity, capture state, evidence counts
+  logs [-n N]       follow the activity log live (default: last 40 lines)
+  logs --no-follow  print and exit
+  logs --gateway    follow the Hermes gateway's own stderr instead
+  start | stop | restart
+  help
+
+The activity log records events only (ids, counts, states), never OCR text or pixels.
+EOF
+}
+
+running() { pgrep -x xCreen >/dev/null; }
+
+status() {
+  if running; then echo "app        running (pid $(pgrep -x xCreen | head -1))"; else echo "app        not running"; fi
+  if pgrep -f 'runtime/xcreen_gateway.py' >/dev/null; then echo "gateway    process up"; else echo "gateway    no process"; fi
+  if [[ -f "$STATUS" ]]; then
+    /usr/bin/python3 - "$STATUS" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+for key in ("hermes", "session", "model", "integrity", "capture", "capture_reason", "updated"):
+    if s.get(key):
+        print(f"{key:<10} {s[key]}")
+PY
+  fi
+  local images=0 ocr=0
+  [[ -d "$EVIDENCE/images" ]] && images=$(find "$EVIDENCE/images" -type f -name '*.png' | wc -l | tr -d ' ')
+  [[ -d "$EVIDENCE/ocr" ]] && ocr=$(find "$EVIDENCE/ocr" -type f -name '*.json' | wc -l | tr -d ' ')
+  echo "evidence   $images images, $ocr OCR snapshots (7-day retention)"
+}
+
+logs() {
+  local n=40 follow=1 file="$LOG"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n) n="$2"; shift 2 ;;
+      --no-follow) follow=0; shift ;;
+      --gateway) file="$LOGS/gateway.log"; shift ;;
+      *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+  done
+  [[ -f "$file" ]] || { echo "no log yet at $file (start xCreen first)" >&2; exit 1; }
+  if [[ $follow -eq 1 ]]; then exec tail -n "$n" -F "$file"; else tail -n "$n" "$file"; fi
+}
+
+case "${1:-help}" in
+  status) status ;;
+  logs) shift; logs "$@" ;;
+  start) open "$APP" ;;
+  stop) pkill -x xCreen || true ;;
+  restart) pkill -x xCreen || true; sleep 1; open "$APP" ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac
