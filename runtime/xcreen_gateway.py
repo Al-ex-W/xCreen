@@ -2,9 +2,14 @@
 """Process-only Hermes TUI gateway launcher for xCreen evidence tools."""
 from __future__ import annotations
 
+import sys
+
+# Resources are code-signed: never create import caches inside the app bundle.
+# Set this before importing either the scoped runtime or Hermes dependencies.
+sys.dont_write_bytecode = True
+
 import argparse
 import os
-import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
