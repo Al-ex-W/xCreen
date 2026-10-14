@@ -12,6 +12,17 @@ final class EvidenceStoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    func testTimestampedCaptureStatusContainsNoEvidence() async throws {
+        let store = try EvidenceStore(root: root)
+        try await store.saveCaptureStatus(state: "gap", reason: "excluded", integrity: false)
+        let data = try Data(contentsOf: root.appendingPathComponent("capture-status.json"))
+        let status = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        XCTAssertEqual(status["capture"], "gap")
+        XCTAssertEqual(status["desired_integrity"], "off")
+        XCTAssertEqual(status["capture_reason"], "excluded")
+        XCTAssertNotNil(status["updated"])
+    }
+
     func testStoresSearchesAndFindsTimestampedEvidence() async throws {
         let store = try EvidenceStore(root: root)
         let time = Date().addingTimeInterval(-60).rounded()

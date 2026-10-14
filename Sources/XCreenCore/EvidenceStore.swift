@@ -86,6 +86,22 @@ public actor EvidenceStore {
         try Self.atomicWrite(try JSONEncoder().encode(index), to: indexURL)
     }
 
+    public func saveImage(data: Data, timestamp: Date = Date(), authorization: CaptureAuthorization) throws -> EvidenceImage {
+        try authorization.withAuthorization { try saveImage(data: data, timestamp: timestamp) }
+    }
+    public func saveOCR(text: String, app: String, title: String, timestamp: Date = Date(), authorization: CaptureAuthorization) throws -> OCREvidence {
+        try authorization.withAuthorization { try saveOCR(text: text, app: app, title: title, timestamp: timestamp) }
+    }
+    public func saveCheckpoint(_ checkpoint: CaptureCheckpoint, authorization: CaptureAuthorization) throws {
+        try authorization.withAuthorization { try saveCheckpoint(checkpoint) }
+    }
+    public func finalizeBatch(_ batch: CaptureBatch, authorization: CaptureAuthorization) throws {
+        try authorization.finalize {
+            try savePendingBatch(batch)
+            try clearCheckpoint()
+        }
+    }
+
     public func saveImage(data: Data, timestamp: Date = Date()) throws -> EvidenceImage {
         guard !data.isEmpty, data.count <= 30_000_000 else { throw EvidenceStoreError.invalidInput }
         let id = Self.makeID(prefix: "image")
@@ -129,6 +145,11 @@ public actor EvidenceStore {
     public func clearCheckpoint() throws {
         guard !Self.isSymlink(checkpointURL) else { throw EvidenceStoreError.unsafePath }
         if FileManager.default.fileExists(atPath: checkpointURL.path) { try FileManager.default.removeItem(at: checkpointURL) }
+    }
+
+    public func saveCaptureStatus(state: String, reason: String, integrity: Bool) throws {
+        let values = ["capture": String(state.prefix(32)), "capture_reason": String(reason.prefix(500)), "desired_integrity": integrity ? "on" : "off", "updated": ISO8601DateFormatter().string(from: Date())]
+        try Self.atomicWrite(try JSONEncoder().encode(values), to: root.appendingPathComponent("capture-status.json"))
     }
 
     public func latestOCR() -> OCREvidence? { index.ocr.filter { !Self.expired($0.timestamp, now: Date()) }.max { $0.timestamp < $1.timestamp } }
