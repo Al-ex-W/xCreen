@@ -5,7 +5,7 @@ The app is authoritative. `bin/xcreen` is a standalone Python 3 client, installe
 | Action | Tray / native behavior | CLI |
 |---|---|---|
 | Live state | Current published state | `status`, optionally `--json` |
-| Integrity | Real capture switch; every launch ON | `integrity get/on/off` |
+| Integrity | User's desired switch; persisted, default ON; actual safety status separate | `integrity get/on/off` |
 | Connection | Connect / Disconnect | `connection connect/disconnect/reconnect` |
 | Models | Provider-aware session picker | `models list`, `model select PROVIDER MODEL` |
 | Paths | Local settings Save | `settings show/set python/root/vault VALUE` |

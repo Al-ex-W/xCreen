@@ -31,7 +31,7 @@ xCreen session ──tool_call──▶ xcreen_search_ocr · xcreen_images_near 
   Compression starts at 500k tokens, or earlier for smaller windows. Model switches apply only to this
   session. Gateway events are broadcast, so the runtime and the UI each receive every event.
 - **Bundled runtime** (`runtime/xcreen_gateway.py`): performs the same bootstrap as the official
-  `hermes` launcher. It registers the four `xcreen` tools through `tools.registry`, pins
+  `hermes` launcher. It registers the six `xcreen` tools through `tools.registry`, pins
   `HERMES_TUI_TOOLSETS=xcreen` for this child process only, then starts `tui_gateway.entry`.
   See [toolkit-contract.md](toolkit-contract.md).
 - **Daily writer**: active only when a vault is configured. It writes only to an existing
@@ -46,7 +46,7 @@ xCreen session ──tool_call──▶ xcreen_search_ocr · xcreen_images_near 
 - `AppState.control` is the shared MainActor action surface; CLI reads live state through a private same-UID Unix socket rather than cached log/defaults state. The installer copies the standalone CLI.
 - `SharedSessionController` orders connection/settings/discovery/model/history actions across awaits and freezes launch settings. Integrity transitions retain their individual values in a separate ordered lane. Runtime and UI observers are connection-generation-bound. Manual question identities support cancellation before admission, while queued behind automatic work, and during compaction; waited replies come from terminal turn-owned output, not the independent UI stream.
 - Implemented commands: status, Integrity get/on/off through real capture gates, connect/disconnect/reconnect, models/select, settings/show/set/autodetect, ask/history/cancel, reply images/list/open, panel/show/hide, graceful quit/start/stop/restart and logs. See [parity contract](cli-parity.md).
-- Every launch requires renewed explicit capture consent (Integrity ON). Model picker changes apply only to the dedicated session and do not recursively switch when IPC/session-info updates arrive.
+- Integrity now preserves explicit user intent across launch. Automatic safety suspensions do not mutate the switch; transmission is separately blocked until capture safety passes. Model picker changes apply only to the dedicated session and do not recursively switch when IPC/session-info updates arrive.
 - Synthetic IPC tests exercise the real Python client and native socket, permissions, exclusive lock, symlink rejection and malformed requests. Fake-gateway history tests use the exact runtime-session ID.
 - Capture-disabled live smoke verification: startup reports running/connected/Integrity true/capture paused; settings access, panel hide, disconnect/reconnect and model inventory succeeded without inference. The inventory returned 137 routes on the verification machine; this is not a shipped fixed catalog.
 - Live reconnect exposed stale old-process EOF/termination callbacks disconnecting a replacement gateway. A delayed-exit regression first failed, then passed after process-generation tokens guarded both frames and disconnect callbacks.
@@ -61,6 +61,10 @@ xCreen session ──tool_call──▶ xcreen_search_ocr · xcreen_images_near 
   launcher answers `gateway.ready` and `gateway.capabilities`.
 
 ## Known limits / not yet verified on device
+
+- Evidence retrieval regression fixes are synthetic-tested: Swift percent-encoded file URLs, unsafe URL/path rejection, Unicode full bounded OCR matching beyond the returned snippet, keyword-free latest/range listing and timestamped coverage. No personal evidence was read for these tests.
+- Missing foreground windows and ScreenCaptureKit acquisition error -3811 leave retryable clock gaps. Other OCR/storage/unknown failures conservatively block until explicit retry/restart. No automatic failure mutates desired Integrity. Wake/unlock signals clear notification blocks only; fresh permission/session/foreground checks still gate acquisition and automatic transmission.
+- The current lock compatibility check requires a present `CGSSessionScreenIsLocked=false` value. If macOS omits it while unlocked, capture remains blocked rather than guessing. This stricter signal and AppKit lifecycle wiring require separately authorized on-device verification; core policy tests do not prove notification delivery.
 
 - Hermes defers plugin tools behind `tool_search`/`tool_call`. Every xCreen prompt names the tools
   explicitly (`XCreenPrompts`), but a weak model can still fail to call them.

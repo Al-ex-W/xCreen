@@ -2,7 +2,7 @@
 
 A native macOS tray app and terminal control surface for one dedicated, persistent Hermes session.
 
-**Developer build, not security audited or notarized.** Every launch starts with Integrity ON: no screenshot acquisition, OCR, or automatic inference. Do not enable capture during development verification. Screen Recording grants and capture opt-in belong to the user.
+**Developer build, not security audited or notarized.** Integrity defaults ON and preserves the user's explicitly chosen preference across restart. Only explicit tray/CLI actions change the switch. Actual capture/automatic inference stay blocked until current permissions, session state and foreground eligibility are verified. Do not enable capture during development verification.
 
 ## Install and test
 
@@ -47,7 +47,7 @@ xcreen stop
 xcreen restart
 ```
 
-`xcreen integrity off` is an explicit user capture-consent action, equivalent to the tray switch. It uses the actual capture service, Screen Recording consent/permission and session-state gates; a denied gate restores Integrity ON and returns an error. Never run it as an automated installation/test step. Integrity ON does not erase history or block deliberate historical questions.
+`xcreen integrity off` is an explicit user capture-consent action, equivalent to the tray switch. A denied safety gate leaves the requested switch OFF but capture suspended/blocked with its reason. Lock, sleep and errors never change the user's switch. Startup does not request permissions. Never run OFF as an automated installation/test step. Integrity ON does not erase history or block deliberate historical questions.
 
 `ask` submits once to the existing xCreen session. Waiting is bounded to 30 seconds; expiry does **not** cancel an admitted turn. Use `history` or `cancel`. History comes from Hermes's `session.history` for the exact resumed runtime session, not a second transcript database. Oversized history returns a limit error rather than silently truncating it. Images list/open are the current answer's resolved attachment IDs, not arbitrary paths or a general filesystem browser.
 
@@ -57,7 +57,7 @@ Ask, history and model inventory may reconnect the dedicated session; connection
 
 When explicitly enabled and all gates permit it, the foreground window is sampled for local Vision OCR at most once per eligible second. OCR >=90% similar to the last saved snapshot is discarded; independent screenshots are saved every ten active seconds. Five active minutes/30 images form a durable batch, sent with timestamp/ID binding to the same xCreen session. Private evidence files remain outside the vault and expire after seven days. No forensic-erasure or database-encryption claim is made; use FileVault.
 
-The bundled Hermes runtime registers only the scoped xCreen tools: OCR search, nearby image lookup, native image loading, and useful source-bound facts appended to an existing Daily note when a vault is configured. It does not modify Hermes profile defaults or other conversations. Model inventory comes from Hermes provider-aware configured routes, not demo Haiku/Luna controls. Inventory currently carries no reliable vision/image-limit metadata.
+The bundled Hermes runtime registers only the scoped xCreen tools: latest/range OCR listing, timestamped coverage status, OCR search, nearby image lookup, native image loading, and useful source-bound facts appended to an existing Daily note when a vault is configured. It does not modify Hermes profile defaults or other conversations. Model inventory comes from Hermes provider-aware configured routes, not demo Haiku/Luna controls. Inventory currently carries no reliable vision/image-limit metadata.
 
 Browsers, credential/security surfaces and xCreen are conservatively excluded. Screen content is untrusted evidence, not authority to send messages, alter calendars or execute instructions. macOS session-state compatibility signals fail closed when missing/contradictory; they are not a documented synchronous unlock API. Capture, TCC transitions, provider inference, live vault writes and Spotlight ranking still need separate user-authorized on-device verification.
 

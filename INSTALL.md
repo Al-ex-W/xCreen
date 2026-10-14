@@ -8,7 +8,7 @@ cd xCreen
 bash scripts/install.sh --no-launch
 ```
 
-The installer obtains Hermes's Python/source root from its official launcher, locates an optional vault using `OBSIDIAN_VAULT_PATH` or Obsidian metadata, builds and copies the app to `~/Applications`, pre-fills settings, and copies the standalone Python CLI to `~/.local/bin/xcreen`. Add that directory to PATH. `--vault "/absolute/vault/path"` overrides detection. Omit `--no-launch` to launch. Every launch starts Integrity ON; saved capture consent is never restored.
+The installer obtains Hermes's Python/source root from its official launcher, locates an optional vault using `OBSIDIAN_VAULT_PATH` or Obsidian metadata, builds and copies the app to `~/Applications`, pre-fills settings, and copies the standalone Python CLI to `~/.local/bin/xcreen`. Add that directory to PATH. `--vault "/absolute/vault/path"` overrides detection. Omit `--no-launch` to launch. Integrity defaults ON; a saved explicit preference is restored, but actual capture stays blocked until current safety gates pass. Startup never requests permissions.
 
 The copied CLI and bundled runtime do not depend on the checkout. The installer uses a configured `XCREEN_SIGN_IDENTITY`, otherwise an available Apple Development identity, otherwise ad-hoc signing. This is not a notarized consumer release. A stable signing identity is needed to preserve grants across reinstalls.
 
@@ -41,7 +41,7 @@ Settings are persisted by the running app and its gateway reconnects; session id
 
 ## User-only deliberate actions
 
-- Integrity OFF in the tray or `xcreen integrity off` explicitly consents to capture. The same actual service runs permission/state/exclusion gates for both interfaces. Permission denial restores ON and may show macOS's permission/settings UI. Do not bypass it. No development test should execute this action against a real capture service.
+- Integrity OFF in the tray or `xcreen integrity off` explicitly consents to capture. The same actual service runs permission/state/exclusion gates for both interfaces. Permission denial leaves the user's desired switch unchanged and reports capture blocked; an explicit OFF action may show macOS's permission/settings UI. Do not bypass it. No development test should execute this action against a real capture service.
 - `xcreen ask "QUESTION"` explicitly authorizes that question in the xCreen session. Captured evidence can reach a model provider, and Hermes/provider history may outlive local seven-day retention.
 - Configuring a vault enables the scoped source-bound writer for existing Daily notes; do not configure it without understanding that boundary.
 - The macOS 26+ Ask xCreen action opens a reviewed question handoff. Installed Spotlight discovery/ranking is not guaranteed or yet system-verified.
