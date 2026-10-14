@@ -41,7 +41,23 @@ final class CaptureService {
     private var enabled: Bool { !intent.integrity }
     private var storageBlocked = false
     private var ready = false
-    private var lifecycleBlocks: Set<String> = []
+    private var lifecycle = CaptureLifecycleState()
+    private var lifecycleBlocks: Set<String> { lifecycle.blocks }
+    private var statusTransition = CaptureStatusTransition()
+
+    private func sessionBlockReason() -> String? {
+        let epoch = lifecycle.epoch
+        let reason = MacSessionState.blockReason
+        guard lifecycle.acceptsEvaluation(epoch: epoch) else { return "session lifecycle veto" }
+        return reason
+    }
+
+    private func lifecycleTransition(_ reason: String, blocked: Bool) {
+        lifecycle.transition(reason, blocked: blocked)
+        // Synchronous delivery in the main notification queue preserves event order.
+        // Even restores revoke old work; only a fresh capture-loop evaluation resumes.
+        pause(reason: blocked ? "Capture suspended · \(reason)" : "Capture pending · reevaluating session")
+    }
     private var statusTask: Task<Void, Never>?
     private func recordStatus(_ state: String, _ reason: String) {
         let previous = statusTask
@@ -94,7 +110,7 @@ final class CaptureService {
             pause(reason: "Capture blocked · Screen Recording permission missing; desired Integrity remains OFF")
             return false
         }
-        guard MacSessionState.current == .unlocked else { pause(reason: "Capture blocked · \(MacSessionState.unsafeReason)"); return false }
+        if let reason = sessionBlockReason() { pause(reason: "Capture blocked · \(reason)"); return false }
         pause(reason: "Capture requested · waiting for verified eligible window")
         return true
     }
@@ -103,7 +119,9 @@ final class CaptureService {
         intent.block(reason: reason); advanceEpoch()
         checkpoint.clock.pause()
         Task { [store, checkpoint, authorization] in try? await store.saveCheckpoint(checkpoint, authorization: authorization) }
-        safetyChanged(false); status(reason)
+        safetyChanged(false)
+        guard statusTransition.changed(state: "paused", reason: reason) else { return }
+        status(reason)
         log.write(.capture, "paused: \(reason)")
         log.updateStatus(["capture": "paused", "capture_reason": reason])
         recordStatus("paused", reason)
@@ -136,7 +154,7 @@ final class CaptureService {
         guard enabled, ready, !storageBlocked, !Task.isCancelled else { return }
         guard lifecycleBlocks.isEmpty else { pause(reason: "Capture suspended · \(lifecycleBlocks.sorted().joined(separator: ", "))"); return }
         guard CGPreflightScreenCaptureAccess() else { pause(reason: "Capture paused · Screen Recording permission missing"); return }
-        guard MacSessionState.current == .unlocked else { pause(reason: "Capture blocked · \(MacSessionState.unsafeReason)"); return }
+        if let reason = sessionBlockReason() { pause(reason: "Capture blocked · \(reason)"); return }
         guard let target = foregroundTarget() else { await pauseClockForPrivacy("Capture enabled · foreground application is unknown"); return }
         guard target.isEligible else { await pauseClockForPrivacy("Capture enabled · foreground application is excluded"); return }
         intent.verifiedSafe()
@@ -148,6 +166,7 @@ final class CaptureService {
             guard accepts(token, target) else { return }
             let now = Date()
             safetyChanged(true)
+            _ = statusTransition.changed(state: "running", reason: "")
             status("Capture running · verified eligible window")
             log.updateStatus(["capture": "running", "capture_reason": ""])
             recordStatus("running", "")
@@ -218,13 +237,14 @@ final class CaptureService {
             storageBlocked = true; pause(reason: "Capture blocked · evidence checkpoint is unsafe"); return
         }
         guard token == generation, enabled, !Task.isCancelled else { return }
+        _ = statusTransition.changed(state: "gap", reason: message)
         status(message)
         log.updateStatus(["capture": "gap", "capture_reason": message])
         recordStatus("gap", message)
     }
 
     private func accepts(_ token: UInt64, _ target: ForegroundTarget) -> Bool {
-        let safe = token == generation && intent.mayCapture && lifecycleBlocks.isEmpty && CGPreflightScreenCaptureAccess() && MacSessionState.current == .unlocked && foregroundTarget() == target
+        let safe = token == generation && intent.mayCapture && lifecycleBlocks.isEmpty && CGPreflightScreenCaptureAccess() && sessionBlockReason() == nil && foregroundTarget() == target
         if !safe && token == generation && enabled { pause(reason: "Capture suspended · permission, session or foreground changed") }
         return safe
     }
@@ -261,12 +281,12 @@ final class CaptureService {
             (NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification, "system asleep"),
             (NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification, "display asleep")]
         for (block, restore, reason) in transitions {
-            observers.append(workspace.addObserver(forName: block, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.lifecycleBlocks.insert(reason); self?.pause(reason: "Capture suspended · \(reason)") } })
-            observers.append(workspace.addObserver(forName: restore, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.lifecycleBlocks.remove(reason) } })
+            observers.append(workspace.addObserver(forName: block, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.lifecycleTransition(reason, blocked: true) } })
+            observers.append(workspace.addObserver(forName: restore, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.lifecycleTransition(reason, blocked: false) } })
         }
         for (block, restore, reason) in [("com.apple.screenIsLocked", "com.apple.screenIsUnlocked", "screen locked"), ("com.apple.screensaver.didstart", "com.apple.screensaver.didstop", "screensaver active")] {
-            observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(block), object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.lifecycleBlocks.insert(reason); self?.pause(reason: "Capture suspended · \(reason)") } })
-            observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(restore), object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.lifecycleBlocks.remove(reason) } })
+            observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(block), object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.lifecycleTransition(reason, blocked: true) } })
+            observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(restore), object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.lifecycleTransition(reason, blocked: false) } })
         }
     }
 }

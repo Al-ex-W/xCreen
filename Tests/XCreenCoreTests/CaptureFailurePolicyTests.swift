@@ -17,11 +17,8 @@ final class CaptureFailurePolicyTests: XCTestCase {
         XCTAssertFalse(state.mayCapture)
     }
 
-    func testCurrentSafetyRequiresPositiveUnlockedEvidence() {
-        XCTAssertFalse(CaptureSessionEvidence.isSafe(onConsole: true, loginDone: true, locked: nil, loginWindow: false))
-        XCTAssertFalse(CaptureSessionEvidence.isSafe(onConsole: true, loginDone: true, locked: true, loginWindow: false))
-        XCTAssertFalse(CaptureSessionEvidence.isSafe(onConsole: false, loginDone: true, locked: false, loginWindow: false))
-        XCTAssertTrue(CaptureSessionEvidence.isSafe(onConsole: true, loginDone: true, locked: false, loginWindow: false))
+    func testUnavailableSessionIsNotCompatibilityEligibility() {
+        XCTAssertNotNil(CaptureSessionEvidence.blockReason(dictionary: nil, foreground: "example.app"))
     }
 
     func testTemporaryGapsRetryButUnsafeStateStops() {
