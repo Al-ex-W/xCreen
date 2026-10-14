@@ -9,6 +9,8 @@ import XCreenCore
             preview.setIntegrityMode(integrity)
             guard integrity != oldValue else { return }
             let value = integrity
+            log.write(.app, "integrity \(value ? "on" : "off")")
+            log.updateStatus(["integrity": value ? "on" : "off"])
             Task { [sessionRuntime] in await sessionRuntime.setIntegrity(value) }
             if value { captureService?.pause() } else { captureService?.enableAfterExplicitConsent() }
         }
@@ -16,7 +18,7 @@ import XCreenCore
     @Published var modelSelection: PreviewModelSelection { didSet { preview.setModelSelection(modelSelection) } }
     @Published var interval: PreviewInterval { didSet { preview.setInterval(interval) } }
     @Published var query = ""
-    @Published var submissionMessage = ""
+    @Published var submissionMessage = "" { didSet { if !submissionMessage.isEmpty, submissionMessage != oldValue { log.write(.app, submissionMessage) } } }
     @Published var showSettings = false
     @Published var hermesPython = ""
     @Published var hermesRoot = ""
@@ -37,6 +39,7 @@ import XCreenCore
     private var observingGateway = false
     private var inFlightBatches: Set<String> = []
     private let defaults: UserDefaults
+    private let log = ActivityLog.shared
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -50,6 +53,8 @@ import XCreenCore
         hermesRoot = defaults.string(forKey: "xcreen.hermes.root") ?? ""
         vaultPath = defaults.string(forKey: "xcreen.vault.path") ?? ""
         storedSessionID = defaults.string(forKey: "xcreen.hermes.session") ?? ""
+        log.write(.app, "started pid=\(ProcessInfo.processInfo.processIdentifier)")
+        log.updateStatus(["app": "running", "hermes": "connecting", "integrity": integrity ? "on" : "off", "capture": "paused"])
         if hermesPython.isEmpty || hermesRoot.isEmpty || vaultPath.isEmpty { autodetectLocalSetup(overwrite: false) }
         else { connectOnLaunch() }
         do {
@@ -104,6 +109,8 @@ import XCreenCore
             try await sessionRuntime.connect(launch: .bundled(python: hermesPython, hermesRoot: hermesRoot, evidenceRoot: EvidenceStore.defaultRoot.path, vault: vaultPath.isEmpty ? nil : vaultPath))
         } catch {
             connected = false
+            log.write(.error, "gateway connect failed: \(error)")
+            log.updateStatus(["hermes": "failed: \(error.localizedDescription)"])
             submissionMessage = "Hermes connection failed: \(error.localizedDescription)"
             throw error
         }
@@ -113,6 +120,8 @@ import XCreenCore
             runtimeSessionID = identity.runtimeSessionID
         }
         connected = true
+        log.write(.gateway, "connected session=\(storedSessionID) runtime=\(runtimeSessionID)")
+        log.updateStatus(["hermes": "connected", "session": storedSessionID])
         submissionMessage = "Hermes connected."
         if let inventory = try? await sessionRuntime.modelOptions() {
             hermesModels = (try? HermesModelRoute.decodeInventory(inventory)) ?? []
@@ -136,11 +145,16 @@ import XCreenCore
             }
             observingGateway = false
             connected = false
+            log.write(.gateway, "disconnected")
+            log.updateStatus(["hermes": "disconnected"])
             submissionMessage = "Hermes gateway stopped. It reconnects on your next question."
         }
     }
 
     private func receiveGatewayEvent(_ event: HermesGatewayEvent) {
+        if !["message.delta", "message.interim", "thinking.delta", "reasoning.delta"].contains(event.type) {
+            log.write(.session, "event \(event.type)")
+        }
         guard let frame = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any],
               let payload = frame["payload"] as? [String: Any] else { return }
         switch event.type {
@@ -199,6 +213,8 @@ import XCreenCore
             do {
                 try await sessionRuntime.switchModel(model: route.model, provider: route.provider)
                 selectedHermesModel = route.id
+                log.write(.model, "switched to \(route.provider)/\(route.model)")
+                log.updateStatus(["model": "\(route.provider)/\(route.model)"])
                 submissionMessage = "Switched this xCreen session to \(route.provider) / \(route.model)."
             } catch { submissionMessage = "Hermes could not switch this session model; defaults were not changed." }
         }
@@ -213,11 +229,14 @@ import XCreenCore
             let manifest = XCreenPrompts.batch(batch)
             let images = batch.images.map { HermesEvidenceAttachment(id: $0.id, timestamp: $0.timestamp, fileURL: $0.fileURL) }
             do {
+                log.write(.batch, "sending id=\(batch.id) images=\(images.count)")
                 try await sessionRuntime.submitAutomatic(manifest: manifest, images: images)
                 try await evidenceStore?.markBatch(id: batch.id, status: "sent")
+                log.write(.batch, "done id=\(batch.id)")
             } catch {
                 // Keep the durable marker eligible for a later reconnect; no inference was claimed.
                 try? await evidenceStore?.markBatch(id: batch.id, status: "pending")
+                log.write(.error, "batch id=\(batch.id) kept pending: \(error)")
                 submissionMessage = "Automatic evidence batch was retained locally; Hermes did not accept it."
             }
         }

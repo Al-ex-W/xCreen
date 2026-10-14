@@ -28,6 +28,8 @@ public struct ActiveCaptureClock: Codable, Sendable {
     /// Preserve accumulated eligible time but ensure time spent paused is never
     /// charged to the next eligible observation (including after a restart).
     public mutating func pause() { lastEligibleAt = nil }
+    /// True when the next sample starts a new run instead of adding time.
+    public var isPaused: Bool { lastEligibleAt == nil }
 
     public mutating func reset() {
         activeSeconds = 0
