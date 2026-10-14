@@ -38,6 +38,7 @@ final class CaptureService {
     private var observers: [NSObjectProtocol] = []
     private var checkpoint = CaptureCheckpoint()
     private var lastSavedOCR: OCREvidence?
+    private let log = ActivityLog.shared
 
     init(store: EvidenceStore, status: @escaping (String) -> Void, integrityChanged: @escaping (Bool) -> Void, batchReady: @escaping (CaptureBatch) -> Void) {
         self.store = store; self.status = status; self.integrityChanged = integrityChanged; self.batchReady = batchReady
@@ -72,6 +73,8 @@ final class CaptureService {
         }
         guard MacSessionState.current == .unlocked else { pause(reason: "Capture remains paused · current session state cannot be verified safely"); return false }
         enabled = true; generation &+= 1; integrityChanged(false); status("Capture enabled · local native evidence only")
+        log.write(.capture, "enabled")
+        log.updateStatus(["capture": "running", "capture_reason": ""])
         startLoop(); return true
     }
 
@@ -80,6 +83,8 @@ final class CaptureService {
         checkpoint.clock.pause()
         Task { [store, checkpoint] in try? await store.saveCheckpoint(checkpoint) }
         integrityChanged(true); status(reason)
+        log.write(.capture, "paused: \(reason)")
+        log.updateStatus(["capture": "paused", "capture_reason": reason])
     }
 
     private func startLoop() {
@@ -98,7 +103,9 @@ final class CaptureService {
 
     private func captureOnce() async {
         let token = generation
-        guard enabled, !Task.isCancelled, CGPreflightScreenCaptureAccess(), MacSessionState.current == .unlocked else { pause(reason: "Capture paused · permission or session state is unsafe"); return }
+        guard enabled, !Task.isCancelled else { return }
+        guard CGPreflightScreenCaptureAccess() else { pause(reason: "Capture paused · Screen Recording permission missing"); return }
+        guard MacSessionState.current == .unlocked else { pause(reason: "Capture paused · session locked or not verifiable"); return }
         guard let target = foregroundTarget() else { await pauseClockForPrivacy("Capture enabled · foreground application is unknown"); return }
         guard target.isEligible else { await pauseClockForPrivacy("Capture enabled · foreground application is excluded"); return }
         do {
@@ -112,12 +119,16 @@ final class CaptureService {
                 let evidence = try await store.saveOCR(text: text, app: target.bundleID, title: title, timestamp: now)
                 guard accepts(token, target) else { return }
                 lastSavedOCR = evidence; checkpoint.ocr.append(evidence)
+                log.write(.capture, "ocr saved id=\(evidence.id) app=\(target.bundleID) chars=\(text.count)")
+            } else if !text.isEmpty {
+                log.write(.capture, "ocr skipped (>=90% same as last) app=\(target.bundleID)")
             }
             if checkpoint.images.count < checkpoint.clock.imageCountDue {
                 guard let png = pngData(image) else { throw CaptureServiceError.imageEncoding }
                 let saved = try await store.saveImage(data: png, timestamp: now)
                 guard accepts(token, target) else { return }
                 checkpoint.images.append(saved)
+                log.write(.capture, "image saved id=\(saved.id) \(checkpoint.images.count)/30 active=\(Int(checkpoint.clock.activeSeconds))s")
             }
             if checkpoint.startedAt == nil { checkpoint.startedAt = now }
             if checkpoint.clock.isComplete && checkpoint.images.count == 30 {
@@ -125,13 +136,18 @@ final class CaptureService {
                 try await store.savePendingBatch(batch)
                 try await store.clearCheckpoint()
                 checkpoint = CaptureCheckpoint()
+                log.write(.batch, "batch ready id=\(batch.id) images=\(batch.images.count) ocr=\(batch.ocr.count)")
                 batchReady(batch)
             } else { try await store.saveCheckpoint(checkpoint) }
         } catch CaptureServiceError.superseded, is CancellationError { return }
-        catch { pause(reason: "Capture paused · capture, OCR, or evidence storage failed") }
+        catch {
+            log.write(.error, "capture failed: \(error)")
+            pause(reason: "Capture paused · capture, OCR, or evidence storage failed")
+        }
     }
 
     private func pauseClockForPrivacy(_ message: String) async {
+        if !checkpoint.clock.isPaused { log.write(.capture, "clock paused: \(message)") }
         checkpoint.clock.pause()
         do { try await store.saveCheckpoint(checkpoint) }
         catch { pause(reason: "Capture paused · evidence checkpoint is unsafe") ; return }
