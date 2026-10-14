@@ -2,6 +2,59 @@ import XCTest
 @testable import XCreenCore
 
 final class HermesSessionRuntimeSafetyTests: XCTestCase {
+    func testDefaultCancelTargetsQueuedManualNotAutomaticCurrent() async throws {
+        let gateway = FakeGateway()
+        let runtime = HermesSessionRuntime(gateway: gateway, records: MemoryRecords())
+        try await runtime.connect(launch: .command(executable: "/usr/bin/true", arguments: []))
+        await runtime.setIntegrity(false)
+        let automatic = Task { try await runtime.submitAutomatic(manifest: "automatic", images: []) }
+        await gateway.waitForSubmission(count: 1)
+        let manual = Task { try await runtime.submitManual("queued") }
+        try await Task.sleep(for: .milliseconds(20))
+        try await runtime.cancel()
+        let cancellations = await gateway.cancelCount()
+        XCTAssertEqual(cancellations, 0)
+        await gateway.emit(type: "message.complete")
+        try await automatic.value
+        try await Task.sleep(for: .milliseconds(20))
+        let submissions = await gateway.submissionCount()
+        XCTAssertEqual(submissions, 1)
+        await gateway.emit(type: "message.complete")
+        await XCTAssertThrowsErrorAsync(try await manual.value)
+    }
+
+    func testQueuedManualCancellationDoesNotInterruptAutomaticOrSubmitLater() async throws {
+        let gateway = FakeGateway()
+        let runtime = HermesSessionRuntime(gateway: gateway, records: MemoryRecords())
+        try await runtime.connect(launch: .command(executable: "/usr/bin/true", arguments: []))
+        await runtime.setIntegrity(false)
+        let automatic = Task { try await runtime.submitAutomatic(manifest: "automatic", images: []) }
+        await gateway.waitForSubmission(count: 1)
+        let id = UUID()
+        let manual = Task { try await runtime.submitManual("queued", turnID: id) }
+        try await Task.sleep(for: .milliseconds(20))
+        try await runtime.cancelManual(turnID: id)
+        await XCTAssertThrowsErrorAsync(try await manual.value)
+        let cancels = await gateway.cancelCount()
+        XCTAssertEqual(cancels, 0)
+        await gateway.emit(type: "message.complete")
+        try await automatic.value
+        try await Task.sleep(for: .milliseconds(20))
+        let submits = await gateway.submissionCount()
+        XCTAssertEqual(submits, 1)
+    }
+
+    func testManualCancellationBeforeAdmissionRejectsTheExactTurn() async throws {
+        let gateway = FakeGateway()
+        let runtime = HermesSessionRuntime(gateway: gateway, records: MemoryRecords())
+        try await runtime.connect(launch: .command(executable: "/usr/bin/true", arguments: []))
+        let id = UUID()
+        try await runtime.cancelManual(turnID: id)
+        await XCTAssertThrowsErrorAsync(try await runtime.submitManual("too late", turnID: id))
+        let submits = await gateway.submissionCount()
+        XCTAssertEqual(submits, 0)
+    }
+
     func testDoesNotDrainNextJobUntilTerminalCompletion() async throws {
         let gateway = FakeGateway()
         let runtime = HermesSessionRuntime(gateway: gateway, records: MemoryRecords())

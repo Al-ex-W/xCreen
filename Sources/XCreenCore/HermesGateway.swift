@@ -28,7 +28,7 @@ public enum HermesGatewayLaunch: Sendable, Equatable {
         case let .bundled(python, hermesRoot, evidenceRoot, vault):
             guard Self.executable(python), Self.directory(hermesRoot), Self.directory(evidenceRoot),
                   let launcher = Bundle.main.url(forResource: "xcreen_gateway", withExtension: "py", subdirectory: "runtime") else { throw HermesGatewayError.invalidLaunch }
-            var arguments = [launcher.path, "--hermes-root", hermesRoot, "--evidence-root", evidenceRoot]
+            var arguments = ["-B", launcher.path, "--hermes-root", hermesRoot, "--evidence-root", evidenceRoot]
             if let vault, !vault.isEmpty { guard Self.directory(vault) else { throw HermesGatewayError.invalidLaunch }; arguments += ["--vault", vault] }
             return (python, arguments, launcher.deletingLastPathComponent())
         case let .python(executable, gatewayEntry):
@@ -56,6 +56,7 @@ public protocol HermesGatewayTransport: Sendable {
     func gatewayCapabilities() async throws -> HermesGatewayCapabilities
     func open(storedSessionID: String?) async throws -> HermesSessionIdentity
     func models(sessionID: String) async throws -> Data
+    func history(sessionID: String) async throws -> Data
     func switchModel(sessionID: String, model: String, provider: String) async throws -> Data
     func compress(sessionID: String) async throws -> Data
     func submit(sessionID: String, text: String) async throws -> Data
@@ -64,8 +65,13 @@ public protocol HermesGatewayTransport: Sendable {
     func stop() async
 }
 
+public extension HermesGatewayTransport {
+    func history(sessionID: String) async throws -> Data { throw HermesGatewayError.unavailable }
+}
+
 public actor HermesGateway: HermesGatewayTransport {
     private var process: Process?
+    private var processToken: UUID?
     private var input: FileHandle?
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
@@ -92,11 +98,12 @@ public actor HermesGateway: HermesGatewayTransport {
 
     public func start(launch: HermesGatewayLaunch) async throws {
         guard process == nil else { return }
+        let token = UUID(); processToken = token
         let (executable, arguments, directory) = try launch.processConfiguration()
         let child = Process(); child.executableURL = URL(fileURLWithPath: executable); child.arguments = arguments; child.currentDirectoryURL = directory
         child.environment = ProcessInfo.processInfo.environment.merging(["PYTHONUNBUFFERED": "1"]) { _, new in new }
         let stdin = Pipe(), stdout = Pipe(); child.standardInput = stdin; child.standardOutput = stdout; child.standardError = Self.stderrSink()
-        child.terminationHandler = { [weak self] _ in Task { await self?.disconnect() } }
+        child.terminationHandler = { [weak self] _ in Task { await self?.disconnect(token: token) } }
         try child.run(); process = child; input = stdin.fileHandleForWriting
         let reader = stdout.fileHandleForReading
         Task.detached { [weak self] in
@@ -105,12 +112,12 @@ public actor HermesGateway: HermesGatewayTransport {
                 let chunk = reader.availableData; guard !chunk.isEmpty else { break }; remainder.append(chunk)
                 while let newline = remainder.firstIndex(of: 10) {
                     let line = Data(remainder[..<newline]); remainder.removeSubrange(...newline)
-                    if !discardingOversizeLine && line.count <= 1_048_576 { await self?.receive(line) }
+                    if !discardingOversizeLine && line.count <= 1_048_576 { await self?.receive(line, token: token) }
                     discardingOversizeLine = false
                 }
                 if remainder.count > 1_048_576 { remainder.removeAll(keepingCapacity: false); discardingOversizeLine = true }
             }
-            await self?.disconnect()
+            await self?.disconnect(token: token)
         }
         try await waitForReady(); _ = try await request("client.capabilities", ["server_requests": false])
     }
@@ -134,6 +141,7 @@ public actor HermesGateway: HermesGatewayTransport {
         return .init(storedID: stored, runtimeID: runtime)
     }
     public func models(sessionID: String) async throws -> Data { try await request("model.options", ["session_id": sessionID, "explicit_only": false]) }
+    public func history(sessionID: String) async throws -> Data { try await request("session.history", ["session_id": sessionID]) }
     public func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { guard validText(model, max: 256), validText(provider, max: 128) else { throw HermesGatewayError.protocolFailure }; return try await request("slash.exec", ["session_id": sessionID, "command": "/model \(model) --provider \(provider) --session"]) }
     public func compress(sessionID: String) async throws -> Data { try await request("session.compress", ["session_id": sessionID]) }
     public func submit(sessionID: String, text: String) async throws -> Data { guard validText(text, max: 32_000) else { throw HermesGatewayError.protocolFailure }; return try await request("prompt.submit", ["session_id": sessionID, "text": text]) }
@@ -167,7 +175,8 @@ public actor HermesGateway: HermesGatewayTransport {
         }
     }
     private func expire(id: Int) { pending.removeValue(forKey: id)?.resume(throwing: HermesGatewayError.deadlineExceeded) }
-    private func receive(_ line: Data) {
+    private func receive(_ line: Data, token: UUID) {
+        guard token == processToken else { return }
         guard line.count <= maximumLineBytes, let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
         if object["method"] as? String == "event", let params = object["params"] as? [String: Any], let type = params["type"] as? String, JSONSerialization.isValidJSONObject(params), let payload = try? JSONSerialization.data(withJSONObject: params) {
             if type == "gateway.ready" { isReady = true; let waiters = readyWaiters; readyWaiters.removeAll(); waiters.values.forEach { $0.resume() } }; broadcast(.init(type: type, payload: payload)); return
@@ -177,7 +186,8 @@ public actor HermesGateway: HermesGatewayTransport {
         else if let result = object["result"], JSONSerialization.isValidJSONObject(result), let data = try? JSONSerialization.data(withJSONObject: result) { continuation.resume(returning: data) }
         else { continuation.resume(throwing: HermesGatewayError.protocolFailure) }
     }
-    private func disconnect() { process = nil; input = nil; isReady = false; let ended = subscribers; subscribers.removeAll(); ended.values.forEach { $0.finish() }; let waiters = readyWaiters; readyWaiters.removeAll(); waiters.values.forEach { $0.resume(throwing: HermesGatewayError.unavailable) }; let waiting = pending; pending.removeAll(); waiting.values.forEach { $0.resume(throwing: HermesGatewayError.unavailable) } }
+    private func disconnect(token: UUID) { guard token == processToken else { return }; disconnect() }
+    private func disconnect() { processToken = nil; process = nil; input = nil; isReady = false; let ended = subscribers; subscribers.removeAll(); ended.values.forEach { $0.finish() }; let waiters = readyWaiters; readyWaiters.removeAll(); waiters.values.forEach { $0.resume(throwing: HermesGatewayError.unavailable) }; let waiting = pending; pending.removeAll(); waiting.values.forEach { $0.resume(throwing: HermesGatewayError.unavailable) } }
     private func decodeObject(_ data: Data) throws -> [String: Any] { guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw HermesGatewayError.protocolFailure }; return value }
     private func validText(_ value: String, max: Int) -> Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && value.utf8.count <= max }
 }
