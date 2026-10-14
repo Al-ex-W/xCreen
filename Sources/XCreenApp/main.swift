@@ -11,13 +11,28 @@ import XCreenCore
             let value = integrity
             log.write(.app, "integrity \(value ? "on" : "off")")
             log.updateStatus(["integrity": value ? "on" : "off"])
-            integrityTransition = controller.setIntegrity(value)
-            if value { captureService?.pause() }
-            else if captureService?.enableAfterExplicitConsent() != true { integrity = true }
+            captureSafe = false
+            integrityTransition = controller.setIntegrity(true)
+            if value { captureService?.userPause() }
+            else { _ = captureService?.enableAfterExplicitConsent() }
         }
     }
     @Published var query = ""
     @Published var submissionMessage = ""
+    @Published var captureStatus = "Capture safety not yet verified"
+    private var captureSafe = false
+    private func captureSafetyChanged(_ safe: Bool) {
+        guard captureSafe != safe else { return }
+        captureSafe = safe
+        integrityTransition = controller.setIntegrity(integrity || !safe)
+        if safe && !integrity {
+            Task { [weak self] in
+                guard let self else { return }
+                await self.integrityTransition?.value
+                await self.submitPendingBatches()
+            }
+        }
+    }
     @Published var showSettings = false
     @Published var hermesPython = ""
     @Published var hermesRoot = ""
@@ -45,7 +60,8 @@ import XCreenCore
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         controller = SharedSessionController(gateway: gateway, records: UserDefaultsHermesSessionRecordStore(defaults: defaults))
-        integrity = true // Every launch requires renewed explicit capture consent.
+        integrity = defaults.object(forKey: "xcreen.integrity") as? Bool ?? true
+        integrityTransition = controller.setIntegrity(true) // Transmission blocked until current safety verified.
         hermesPython = defaults.string(forKey: "xcreen.hermes.python") ?? ""
         hermesRoot = defaults.string(forKey: "xcreen.hermes.root") ?? ""
         vaultPath = defaults.string(forKey: "xcreen.vault.path") ?? ""
@@ -76,12 +92,13 @@ import XCreenCore
             evidenceStore = store
             captureService = CaptureService(
                 store: store,
-                status: { [weak self] value in self?.submissionMessage = value },
-                integrityChanged: { [weak self] value in self?.integrity = value },
+                status: { [weak self] value in self?.captureStatus = value },
+                safetyChanged: { [weak self] safe in self?.captureSafetyChanged(safe) },
                 batchReady: { [weak self] batch in self?.submit(batch: batch) }
             )
+            if !integrity { _ = captureService?.enableAfterExplicitConsent(requestPermission: false) }
         } catch {
-            submissionMessage = "Capture remains paused — local evidence storage could not be opened."
+            captureStatus = "Capture blocked — local evidence storage could not be opened."
         }
     }
 
@@ -208,11 +225,14 @@ import XCreenCore
     }
 
     private func submit(batch: CaptureBatch) {
+        guard !integrity, captureSafe else { return }
         // A batch is retried after reconnects; never put the same one in flight twice.
         guard inFlightBatches.insert(batch.id).inserted else { return }
         Task { [weak self] in
             guard let self else { return }
             defer { inFlightBatches.remove(batch.id) }
+            await integrityTransition?.value
+            guard !integrity, captureSafe else { return }
             let manifest = XCreenPrompts.batch(batch)
             let images = batch.images.map { HermesEvidenceAttachment(id: $0.id, timestamp: $0.timestamp, fileURL: $0.fileURL) }
             do {
@@ -268,9 +288,10 @@ import XCreenCore
             guard let value = command.value, ["on", "off"].contains(value) else { throw LocalControlError.invalidRequest("integrity value must be on or off") }
             // Off is explicit user consent, equivalent to the tray's toggle. Capture still
             // fails closed when macOS permission or state guards reject it.
+            if value == "off", !integrity { _ = captureService?.enableAfterExplicitConsent() }
             integrity = value == "on"
             await integrityTransition?.value
-            if value == "off", integrity { throw LocalControlError.unavailable(submissionMessage) }
+
         case .connect: try await connectIfNeeded()
         case .disconnect:
             await controller.disconnect(); submissionMessage = "Hermes disconnected."
@@ -335,7 +356,8 @@ import XCreenCore
         case .panel:
             if command.value == "hide" { AppDelegate.shared?.popover.performClose(nil) } else { AppDelegate.shared?.showPanel() }
         case .quit:
-            integrity = true
+            captureService?.pause(reason: "Capture suspended · quitting")
+            integrityTransition = controller.setIntegrity(true)
             await integrityTransition?.value
             await controller.disconnect()
             Task { try? await Task.sleep(for: .milliseconds(300)); NSApplication.shared.terminate(nil) }
@@ -347,7 +369,7 @@ import XCreenCore
         let routes = hermesModels.map { LocalControlModel(provider: $0.provider, model: $0.model) }
         let current = hermesModels.first(where: { $0.id == selectedHermesModel }).map { LocalControlModel(provider: $0.provider, model: $0.model) }
         let images = appendix.map { LocalControlImage(id: $0.id, timestamp: $0.timestamp) }
-        return .init(app: "running", connected: connected, integrity: integrity, capture: integrity ? "paused" : "guarded", message: submissionMessage, models: routes, currentModel: current, settings: .init(python: hermesPython, root: hermesRoot, vault: vaultPath), images: images)
+        return .init(app: "running", connected: connected, integrity: integrity, capture: captureStatus, message: submissionMessage, models: routes, currentModel: current, settings: .init(python: hermesPython, root: hermesRoot, vault: vaultPath), images: images)
     }
 }
 
@@ -379,7 +401,8 @@ struct Panel: View {
                 .accessibilityHint("Integrity pauses capture and automatic work.")
             Text(state.integrity
                  ? "On: no screenshots, no OCR, nothing sent automatically."
-                 : "Off: OCR every second, a screenshot every 10 s, a batch to Hermes every 5 active minutes.")
+                 : "Off: capture requested; automatic safety gates may suspend it without changing this switch.")
+            Text(state.captureStatus).font(.caption).foregroundStyle(.secondary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

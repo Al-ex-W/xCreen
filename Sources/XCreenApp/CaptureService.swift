@@ -29,25 +29,45 @@ private enum VisionTextRecognizer {
 final class CaptureService {
     private let store: EvidenceStore
     private let status: (String) -> Void
-    private let integrityChanged: (Bool) -> Void
+    private let safetyChanged: (Bool) -> Void
     private let batchReady: (CaptureBatch) -> Void
     private var loop: Task<Void, Never>?
     private var maintenance: Task<Void, Never>?
-    private var generation: UInt64 = 0
-    private var enabled = false
+    private let persistence = CapturePersistenceEpoch()
+    private var generation: UInt64 { persistence.generation }
+    private var authorization: CaptureAuthorization { persistence.authorization }
+    private func advanceEpoch() { persistence.advance() }
+    private var intent = CaptureIntentState()
+    private var enabled: Bool { !intent.integrity }
+    private var storageBlocked = false
+    private var ready = false
+    private var lifecycleBlocks: Set<String> = []
+    private var statusTask: Task<Void, Never>?
+    private func recordStatus(_ state: String, _ reason: String) {
+        let previous = statusTask
+        let desiredIntegrity = intent.integrity
+        statusTask = Task { [store] in
+            await previous?.value
+            try? await store.saveCaptureStatus(state: state, reason: reason, integrity: desiredIntegrity)
+        }
+    }
     private var observers: [NSObjectProtocol] = []
-    private var checkpoint = CaptureCheckpoint()
+    private var checkpoint: CaptureCheckpoint {
+        get { persistence.checkpoint }
+        set { persistence.checkpoint = newValue }
+    }
     private var lastSavedOCR: OCREvidence?
     private let log = ActivityLog.shared
 
-    init(store: EvidenceStore, status: @escaping (String) -> Void, integrityChanged: @escaping (Bool) -> Void, batchReady: @escaping (CaptureBatch) -> Void) {
-        self.store = store; self.status = status; self.integrityChanged = integrityChanged; self.batchReady = batchReady
-        integrityChanged(true)
+    init(store: EvidenceStore, status: @escaping (String) -> Void, safetyChanged: @escaping (Bool) -> Void, batchReady: @escaping (CaptureBatch) -> Void) {
+        self.store = store; self.status = status; self.safetyChanged = safetyChanged; self.batchReady = batchReady
+        safetyChanged(false)
         installLifecycleObservers()
+        recordStatus("paused", "Integrity mode · startup")
         Task { [weak self] in
             guard let self else { return }
-            do { self.checkpoint = try await store.loadCheckpoint(); self.lastSavedOCR = await store.latestOCR() }
-            catch { self.pause(reason: "Capture paused · evidence checkpoint is unsafe") }
+            do { self.checkpoint = try await store.loadCheckpoint(); self.lastSavedOCR = await store.latestOCR(); self.ready = true }
+            catch { self.storageBlocked = true; self.pause(reason: "Capture blocked · evidence checkpoint is unsafe") }
         }
         // Retention runs even while Integrity mode pauses capture.
         maintenance = Task { [store] in
@@ -61,30 +81,38 @@ final class CaptureService {
     deinit { loop?.cancel(); maintenance?.cancel(); observers.forEach(NotificationCenter.default.removeObserver) }
 
     @discardableResult
-    func enableAfterExplicitConsent() -> Bool {
+    func enableAfterExplicitConsent(requestPermission: Bool = true) -> Bool {
+        intent.userSetIntegrity(false); advanceEpoch()
+        if ready { storageBlocked = false }
+        startLoop()
         guard CGPreflightScreenCaptureAccess() else {
             // The user just turned Integrity off, so asking now is user-initiated. macOS shows
             // its prompt once; afterwards the user grants it in System Settings.
-            if !CGRequestScreenCaptureAccess() {
+            if requestPermission && !CGRequestScreenCaptureAccess() {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
             }
-            pause(reason: "Allow xCreen under Screen Recording, then turn Integrity off again")
+            pause(reason: "Capture blocked · Screen Recording permission missing; desired Integrity remains OFF")
             return false
         }
-        guard MacSessionState.current == .unlocked else { pause(reason: "Capture remains paused · current session state cannot be verified safely"); return false }
-        enabled = true; generation &+= 1; integrityChanged(false); status("Capture enabled · local native evidence only")
-        log.write(.capture, "enabled")
-        log.updateStatus(["capture": "running", "capture_reason": ""])
-        startLoop(); return true
+        guard MacSessionState.current == .unlocked else { pause(reason: "Capture blocked · \(MacSessionState.unsafeReason)"); return false }
+        pause(reason: "Capture requested · waiting for verified eligible window")
+        return true
     }
 
     func pause(reason: String = "Integrity mode · capture paused") {
-        enabled = false; generation &+= 1; loop?.cancel(); loop = nil
+        intent.block(reason: reason); advanceEpoch()
         checkpoint.clock.pause()
-        Task { [store, checkpoint] in try? await store.saveCheckpoint(checkpoint) }
-        integrityChanged(true); status(reason)
+        Task { [store, checkpoint, authorization] in try? await store.saveCheckpoint(checkpoint, authorization: authorization) }
+        safetyChanged(false); status(reason)
         log.write(.capture, "paused: \(reason)")
         log.updateStatus(["capture": "paused", "capture_reason": reason])
+        recordStatus("paused", reason)
+    }
+
+    func userPause() {
+        intent.userSetIntegrity(true)
+        loop?.cancel(); loop = nil
+        pause()
     }
 
     private func startLoop() {
@@ -102,21 +130,30 @@ final class CaptureService {
     }
 
     private func captureOnce() async {
+        advanceEpoch()
         let token = generation
-        guard enabled, !Task.isCancelled else { return }
+        let authorization = self.authorization
+        guard enabled, ready, !storageBlocked, !Task.isCancelled else { return }
+        guard lifecycleBlocks.isEmpty else { pause(reason: "Capture suspended · \(lifecycleBlocks.sorted().joined(separator: ", "))"); return }
         guard CGPreflightScreenCaptureAccess() else { pause(reason: "Capture paused · Screen Recording permission missing"); return }
-        guard MacSessionState.current == .unlocked else { pause(reason: "Capture paused · session locked or not verifiable"); return }
+        guard MacSessionState.current == .unlocked else { pause(reason: "Capture blocked · \(MacSessionState.unsafeReason)"); return }
         guard let target = foregroundTarget() else { await pauseClockForPrivacy("Capture enabled · foreground application is unknown"); return }
         guard target.isEligible else { await pauseClockForPrivacy("Capture enabled · foreground application is excluded"); return }
+        intent.verifiedSafe()
+        let previousClock = checkpoint.clock
         do {
             let (image, title) = try await captureWindow(target: target, token: token)
             guard accepts(token, target) else { return }
             let text = try await VisionTextRecognizer.recognize(image)
             guard accepts(token, target) else { return }
             let now = Date()
+            safetyChanged(true)
+            status("Capture running · verified eligible window")
+            log.updateStatus(["capture": "running", "capture_reason": ""])
+            recordStatus("running", "")
             _ = checkpoint.clock.recordEligibleSample(at: now)
             if !text.isEmpty && !isNearDuplicate(text, lastSavedOCR?.text) {
-                let evidence = try await store.saveOCR(text: text, app: target.bundleID, title: title, timestamp: now)
+                let evidence = try await store.saveOCR(text: text, app: target.bundleID, title: title, timestamp: now, authorization: authorization)
                 guard accepts(token, target) else { return }
                 lastSavedOCR = evidence; checkpoint.ocr.append(evidence)
                 log.write(.capture, "ocr saved id=\(evidence.id) app=\(target.bundleID) chars=\(text.count)")
@@ -125,7 +162,7 @@ final class CaptureService {
             }
             if checkpoint.images.count < checkpoint.clock.imageCountDue {
                 guard let png = pngData(image) else { throw CaptureServiceError.imageEncoding }
-                let saved = try await store.saveImage(data: png, timestamp: now)
+                let saved = try await store.saveImage(data: png, timestamp: now, authorization: authorization)
                 guard accepts(token, target) else { return }
                 checkpoint.images.append(saved)
                 log.write(.capture, "image saved id=\(saved.id) \(checkpoint.images.count)/30 active=\(Int(checkpoint.clock.activeSeconds))s")
@@ -133,29 +170,63 @@ final class CaptureService {
             if checkpoint.startedAt == nil { checkpoint.startedAt = now }
             if checkpoint.clock.isComplete && checkpoint.images.count == 30 {
                 let batch = CaptureBatch(id: "batch-\(UUID().uuidString.lowercased())", images: checkpoint.images, startedAt: checkpoint.startedAt ?? now, completedAt: now, ocr: checkpoint.ocr)
-                try await store.savePendingBatch(batch)
-                try await store.clearCheckpoint()
-                checkpoint = CaptureCheckpoint()
-                log.write(.batch, "batch ready id=\(batch.id) images=\(batch.images.count) ocr=\(batch.ocr.count)")
-                batchReady(batch)
-            } else { try await store.saveCheckpoint(checkpoint) }
-        } catch CaptureServiceError.superseded, is CancellationError { return }
-        catch {
+                try await store.finalizeBatch(batch, authorization: authorization)
+                guard accepts(token, target) else { return }
+                persistence.complete(authorization) {
+                    log.write(.batch, "batch ready id=\(batch.id) images=\(batch.images.count) ocr=\(batch.ocr.count)")
+                    batchReady(batch)
+                }
+            } else { try await store.saveCheckpoint(checkpoint, authorization: authorization) }
+        } catch CaptureAuthorization.Revoked.invalidated { return }
+        catch CaptureServiceError.superseded, is CancellationError { return }
+        catch CaptureServiceError.noForegroundWindow {
+            guard token == generation, enabled, !Task.isCancelled else { return }
+            await handleFailure(.noForegroundWindow, reason: "No foreground window available · retrying")
+        } catch let error as NSError where error.domain == SCStreamErrorDomain && error.code == -3811 {
+            guard token == generation, enabled, !Task.isCancelled else { return }
+            log.write(.error, "temporary acquisition failure: \(error.code)")
+            await handleFailure(.screenCaptureTransient, reason: "Screen capture unavailable · retrying")
+        } catch {
+            guard token == generation, enabled, !Task.isCancelled else { return }
             log.write(.error, "capture failed: \(error)")
-            pause(reason: "Capture paused · capture, OCR, or evidence storage failed")
+            checkpoint.clock = previousClock
+            storageBlocked = true
+            pause(reason: "Capture blocked · \(String(describing: error).prefix(300)); retry with an explicit OFF request after resolving the failure")
+        }
+    }
+
+    private func handleFailure(_ failure: CaptureFailurePolicy.Failure, reason: String) async {
+        switch CaptureFailurePolicy.action(failure) {
+        case .retryGap:
+            guard enabled, !Task.isCancelled else { return }
+            await pauseClockForPrivacy(reason)
+        case .safetyBlock: pause(reason: reason)
         }
     }
 
     private func pauseClockForPrivacy(_ message: String) async {
+        let token = generation
+        let authorization = self.authorization
+        intent.block(reason: message)
+        safetyChanged(false)
         if !checkpoint.clock.isPaused { log.write(.capture, "clock paused: \(message)") }
         checkpoint.clock.pause()
-        do { try await store.saveCheckpoint(checkpoint) }
-        catch { pause(reason: "Capture paused · evidence checkpoint is unsafe") ; return }
+        do { try await store.saveCheckpoint(checkpoint, authorization: authorization) }
+        catch CaptureAuthorization.Revoked.invalidated { return }
+        catch {
+            guard token == generation else { return }
+            storageBlocked = true; pause(reason: "Capture blocked · evidence checkpoint is unsafe"); return
+        }
+        guard token == generation, enabled, !Task.isCancelled else { return }
         status(message)
+        log.updateStatus(["capture": "gap", "capture_reason": message])
+        recordStatus("gap", message)
     }
 
     private func accepts(_ token: UInt64, _ target: ForegroundTarget) -> Bool {
-        token == generation && enabled && MacSessionState.current == .unlocked && foregroundTarget() == target
+        let safe = token == generation && intent.mayCapture && lifecycleBlocks.isEmpty && CGPreflightScreenCaptureAccess() && MacSessionState.current == .unlocked && foregroundTarget() == target
+        if !safe && token == generation && enabled { pause(reason: "Capture suspended · permission, session or foreground changed") }
+        return safe
     }
 
     private func foregroundTarget() -> ForegroundTarget? {
@@ -165,7 +236,8 @@ final class CaptureService {
 
     private func captureWindow(target: ForegroundTarget, token: UInt64) async throws -> (CGImage, String) {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        guard accepts(token, target), let window = content.windows.first(where: { $0.owningApplication?.processID == target.processID && $0.windowLayer == 0 && $0.frame.width > 1 && $0.frame.height > 1 }) else { throw CaptureServiceError.noForegroundWindow }
+        guard accepts(token, target) else { throw CaptureServiceError.superseded }
+        guard let window = content.windows.first(where: { $0.owningApplication?.processID == target.processID && $0.windowLayer == 0 && $0.frame.width > 1 && $0.frame.height > 1 }) else { throw CaptureServiceError.noForegroundWindow }
         let config = SCStreamConfiguration(); let scale = NSScreen.main?.backingScaleFactor ?? 2
         config.width = min(4096, max(1, Int(window.frame.width * scale))); config.height = min(4096, max(1, Int(window.frame.height * scale))); config.showsCursor = false
         guard accepts(token, target) else { throw CaptureServiceError.superseded }
@@ -184,11 +256,17 @@ final class CaptureService {
     private func normalizedTokens(_ text: String) -> Set<String> { Set(text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init).filter { !$0.isEmpty }) }
     private func installLifecycleObservers() {
         let workspace = NSWorkspace.shared.notificationCenter
-        [NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification].forEach { name in
-            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.pause(reason: "Capture paused · session inactive or display asleep") } })
+        let transitions: [(Notification.Name, Notification.Name, String)] = [
+            (NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification, "session inactive"),
+            (NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification, "system asleep"),
+            (NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification, "display asleep")]
+        for (block, restore, reason) in transitions {
+            observers.append(workspace.addObserver(forName: block, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.lifecycleBlocks.insert(reason); self?.pause(reason: "Capture suspended · \(reason)") } })
+            observers.append(workspace.addObserver(forName: restore, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.lifecycleBlocks.remove(reason) } })
         }
-        ["com.apple.screenIsLocked", "com.apple.screensaver.didstart"].forEach { raw in
-            observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(raw), object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.pause(reason: "Capture paused · screen locked") } })
+        for (block, restore, reason) in [("com.apple.screenIsLocked", "com.apple.screenIsUnlocked", "screen locked"), ("com.apple.screensaver.didstart", "com.apple.screensaver.didstop", "screensaver active")] {
+            observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(block), object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.lifecycleBlocks.insert(reason); self?.pause(reason: "Capture suspended · \(reason)") } })
+            observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(restore), object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.lifecycleBlocks.remove(reason) } })
         }
     }
 }
