@@ -1,12 +1,12 @@
 # xCreen
 
-**A disconnected macOS menu-bar UI preview for a future personal AI harness.**
+**A privacy-first macOS menu-bar foundation for a personal AI harness.**
 
-> **Developer preview — not a finished or security-audited screen-memory app.** The built native app is intentionally disconnected: it does not discover model configuration, run the bridge or Hermes, request permissions, instantiate capture, or touch SQLite or a vault. It only stores a few UI preferences locally. The independent bridge, capture, and storage code remains in this repository for future reviewed wiring.
+> **Developer build — not security audited.** Capture starts paused and fails closed; development verification never requests macOS screen permission, captures pixels, reads a vault, or sends personal evidence to Hermes. See [implementation progress](docs/implementation-progress.md) for verified behavior and remaining integration work.
 
 ## Design
 
-xCreen's current app is a polished, disconnected tray preview. Its monitor placeholder, Integrity control, recommendation picker, compact local settings, and question field are usable without granting access to any data or service. Questions are never sent and explicitly report that they were not sent.
+xCreen's current app is a native tray foundation. Its Integrity control starts paused, its local settings can hold an explicit Hermes executable path, and the chat control uses a single xCreen-only Hermes session when that gateway is available. It does not request capture permission or claim an answer when the gateway is unavailable.
 
 The independent backend code documents a future intended pipeline: filtered foreground-window screenshots → local Apple Vision OCR → short-lived SQLite retrieval → an explicit answer through an existing harness. That code is retained for later reviewed wiring; the preview UI never calls it. Dormant Swift backend types may remain linked into the executable, but the Python bridge is not bundled.
 
@@ -16,7 +16,7 @@ The native silver mini-panel uses a placeholder monitor symbol inspired by class
 
 ## Build and run
 
-Requires macOS 14+ and Xcode/Swift 5.9+. The disconnected preview has no Python, Hermes, model-provider, capture, or permission requirement.
+Requires macOS 14+ and Xcode/Swift 5.9+. The menu app has no Hermes, model-provider, capture, or permission requirement until the user deliberately configures a local Hermes executable and asks a question.
 
 ```sh
 swift test
@@ -33,7 +33,7 @@ The retained bridge code reads the current `HERMES_HOME` or default `~/.hermes` 
 
 | Feature | Status |
 |---|---|
-| Native menu-bar mini UI, placeholder icon, local preferences and question field | Disconnected UI preview; question submissions are never sent |
+| Native menu-bar mini UI, local preferences and question field | Hermes transport is available only after deliberate local executable configuration; otherwise no question is sent |
 | Existing Hermes model inventory and per-query selection | Independent backend code retained; not called by the preview app; Python bridge not bundled |
 | Bounded local OCR-text ingestion, FTS search, expiry and purge | Local bridge; command-line ingestion |
 | Integrity defaults ON, exclusions and stale-result policy | Unit-tested core and app lifecycle wiring |
@@ -65,7 +65,7 @@ Later, reviewed useful facts can become short source-linked distillations in exi
 
 Capture is OFF by default and live screenshot capture is unavailable in this preview. Integrity mode ON stops the periodic task, cancels local ingestion, advances the capture generation, and rejects older in-flight image/OCR results; old-history deletion remains a separate operation. Session resignation, sleep/display sleep, permission loss, unsafe idle state, and capture/OCR/index failures return to Integrity ON. Notifications are supplemental invalidation signals only; they never establish that a session is currently unlocked. Password managers, security/system surfaces, xCreen itself, and common browsers are excluded. Browser-wide exclusion is intentionally conservative.
 
-For the retained future backend only, local OCR does not mean local inference: an explicit question would send only matching retrieved text to the chosen provider after one-shot consent. The disconnected preview has no OCR, consent, provider submission, or transcripts.
+For the retained local backend, local OCR does not mean local inference: evidence remains local until a configured Hermes session accepts an explicit request. Development verification has no OCR, consent, provider submission, vault reads, or real transcripts.
 
 Expiry and purge rebuild/optimize FTS and checkpoint the WAL after commit. The local index is private-file-permission protected, **not database-encrypted**. Recommend FileVault. These operations make no promise of forensic erasure, backup deletion, universal incognito detection, or perfect credential redaction. Read [SECURITY.md](SECURITY.md) before using sensitive context.
 
