@@ -41,6 +41,7 @@ import XCreenCore
         hermesRoot = defaults.string(forKey: "xcreen.hermes.root") ?? ""
         vaultPath = defaults.string(forKey: "xcreen.vault.path") ?? ""
         storedSessionID = defaults.string(forKey: "xcreen.hermes.session") ?? ""
+        if hermesPython.isEmpty || hermesRoot.isEmpty || vaultPath.isEmpty { autodetectLocalSetup(overwrite: false) }
         do {
             let store = try EvidenceStore(root: EvidenceStore.defaultRoot)
             evidenceStore = store
@@ -124,6 +125,25 @@ import XCreenCore
             }
         case "error": submissionMessage = "Hermes reported an error — no answer was claimed."
         default: break
+        }
+    }
+
+    /// Fills Python, Hermes root and vault from the installed `hermes` launcher and Obsidian.
+    /// Without `overwrite`, values the user already set are kept.
+    func autodetectLocalSetup(overwrite: Bool = true) {
+        submissionMessage = "Detecting Hermes and Obsidian vault…"
+        Task { [weak self] in
+            let (hermes, vault) = await Task.detached { (LocalSetupDetector.detectHermes(), LocalSetupDetector.detectVault()) }.value
+            guard let self else { return }
+            if let hermes {
+                if overwrite || hermesPython.isEmpty { hermesPython = hermes.python }
+                if overwrite || hermesRoot.isEmpty { hermesRoot = hermes.hermesRoot }
+            }
+            if let vault, overwrite || vaultPath.isEmpty { vaultPath = vault }
+            saveHermesExecutable()
+            submissionMessage = hermes == nil
+                ? "Hermes not found. Install it or fill the paths in Local settings."
+                : "Detected Hermes\(vault == nil ? "" : " and vault"). Nothing launches until you ask."
         }
     }
 
@@ -292,8 +312,11 @@ struct Panel: View {
                         .textFieldStyle(.roundedBorder)
                     TextField("Obsidian vault (optional, enables Daily notes)", text: $state.vaultPath)
                         .textFieldStyle(.roundedBorder)
-                    Button("Save Hermes launch paths") { state.saveHermesExecutable() }
-                        .buttonStyle(.borderless)
+                    HStack {
+                        Button("Auto-detect") { state.autodetectLocalSetup() }
+                        Button("Save") { state.saveHermesExecutable() }
+                    }
+                    .buttonStyle(.borderless)
                     Picker("Interval", selection: $state.interval) {
                         ForEach(PreviewInterval.allCases, id: \.self) { interval in
                             Text(interval.label).tag(interval)
