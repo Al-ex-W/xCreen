@@ -61,7 +61,15 @@ final class CaptureService {
 
     @discardableResult
     func enableAfterExplicitConsent() -> Bool {
-        guard CGPreflightScreenCaptureAccess() else { pause(reason: "Capture remains paused · enable Screen Recording in System Settings, then opt in again"); return false }
+        guard CGPreflightScreenCaptureAccess() else {
+            // The user just turned Integrity off, so asking now is user-initiated. macOS shows
+            // its prompt once; afterwards the user grants it in System Settings.
+            if !CGRequestScreenCaptureAccess() {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+            }
+            pause(reason: "Allow xCreen under Screen Recording, then turn Integrity off again")
+            return false
+        }
         guard MacSessionState.current == .unlocked else { pause(reason: "Capture remains paused · current session state cannot be verified safely"); return false }
         enabled = true; generation &+= 1; integrityChanged(false); status("Capture enabled · local native evidence only")
         startLoop(); return true
