@@ -2,6 +2,27 @@ import XCTest
 @testable import XCreenCore
 
 final class HermesGatewayRuntimeTests: XCTestCase {
+    func testOldProcessExitCannotDisconnectReplacement() async throws {
+        let script = try makeGatewayScript(terminationDelay: 0.3)
+        defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
+        let gateway = HermesGateway(defaultDeadline: 1)
+        try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
+        await gateway.stop()
+        try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
+        try await Task.sleep(for: .milliseconds(500))
+        _ = try await gateway.history(sessionID: "runtime-xcreen")
+        await gateway.stop()
+    }
+    func testReadsDurableHistoryFromExactRuntimeSession() async throws {
+        let script = try makeGatewayScript()
+        defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
+        let gateway = HermesGateway(defaultDeadline: 1)
+        try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
+        let data = try await gateway.history(sessionID: "runtime-xcreen")
+        let value = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(value?["count"] as? Int, 1)
+        await gateway.stop()
+    }
     func testGatewayStartsRawPythonEntryAndPerformsReadinessHandshake() async throws {
         let script = try makeGatewayScript()
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
@@ -59,14 +80,17 @@ final class HermesGatewayRuntimeTests: XCTestCase {
         await gateway.stop()
     }
 
-    private func makeGatewayScript(resumeResult: String = #"{"session_id":"runtime-xcreen","stored_session_id":"stored-xcreen"}"#) throws -> URL {
+    private func makeGatewayScript(resumeResult: String = #"{"session_id":"runtime-xcreen","stored_session_id":"stored-xcreen"}"#, terminationDelay: Double = 0) throws -> URL {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("xcreen-fake-gateway-\(UUID().uuidString)", isDirectory: true)
         let package = root.appendingPathComponent("tui_gateway", isDirectory: true)
         try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
         try Data().write(to: package.appendingPathComponent("__init__.py"))
         let url = package.appendingPathComponent("entry.py")
         let source = #"""
-import json, sys
+import json, sys, signal, time
+def terminate(*args):
+    time.sleep(\#(terminationDelay)); sys.exit(0)
+signal.signal(signal.SIGTERM, terminate)
 RESUME = '''\#(resumeResult)'''
 print(json.dumps({"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"change_events":True}}}), flush=True)
 for line in sys.stdin:
@@ -75,6 +99,9 @@ for line in sys.stdin:
     rid = request.get("id")
     if method == "session.resume": result = json.loads(RESUME)
     elif method == "gateway.capabilities": result = {"per_session_exclusive_submit":True}
+    elif method == "session.history":
+        assert request['params']['session_id'] == 'runtime-xcreen'
+        result = {"count":1,"messages":[{"role":"assistant","content":"synthetic durable reply"}]}
     elif method == "image.attach_bytes": result = {"attached":True}
     elif method == "prompt.submit": result = {"status":"streaming"}
     elif method == "client.capabilities": result = {"server_requests":[],"declines_not_shown":True}
