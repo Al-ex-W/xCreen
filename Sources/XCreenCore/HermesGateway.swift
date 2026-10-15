@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 public enum HermesGatewayError: LocalizedError, Equatable {
     case invalidLaunch, unavailable, deadlineExceeded, protocolFailure, cancelled
@@ -57,6 +58,7 @@ public protocol HermesGatewayTransport: Sendable {
     func open(storedSessionID: String?) async throws -> HermesSessionIdentity
     func models(sessionID: String) async throws -> Data
     func history(sessionID: String) async throws -> Data
+    func setHidden(sessionID: String, hidden: Bool) async throws -> Bool
     func switchModel(sessionID: String, model: String, provider: String) async throws -> Data
     func compress(sessionID: String) async throws -> Data
     func submit(sessionID: String, text: String) async throws -> Data
@@ -66,6 +68,7 @@ public protocol HermesGatewayTransport: Sendable {
 }
 
 public extension HermesGatewayTransport {
+    func setHidden(sessionID: String, hidden: Bool) async throws -> Bool { throw HermesGatewayError.unavailable }
     func history(sessionID: String) async throws -> Data { throw HermesGatewayError.unavailable }
 }
 
@@ -142,6 +145,12 @@ public actor HermesGateway: HermesGatewayTransport {
     }
     public func models(sessionID: String) async throws -> Data { try await request("model.options", ["session_id": sessionID, "explicit_only": false]) }
     public func history(sessionID: String) async throws -> Data { try await request("session.history", ["session_id": sessionID]) }
+    public func setHidden(sessionID: String, hidden: Bool) async throws -> Bool {
+        let reply = try decodeObject(await request("session.set_hidden", ["session_id": sessionID, "hidden": hidden]))
+        guard let flag = reply["hidden"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID(),
+              let key = reply["session_key"] as? String, !key.isEmpty else { throw HermesGatewayError.protocolFailure }
+        return flag.boolValue
+    }
     public func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { guard validText(model, max: 256), validText(provider, max: 128) else { throw HermesGatewayError.protocolFailure }; return try await request("slash.exec", ["session_id": sessionID, "command": "/model \(model) --provider \(provider) --session"]) }
     public func compress(sessionID: String) async throws -> Data { try await request("session.compress", ["session_id": sessionID]) }
     public func submit(sessionID: String, text: String) async throws -> Data { guard validText(text, max: 32_000) else { throw HermesGatewayError.protocolFailure }; return try await request("prompt.submit", ["session_id": sessionID, "text": text]) }

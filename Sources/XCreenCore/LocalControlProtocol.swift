@@ -9,7 +9,7 @@ public enum LocalControlProtocol {
 }
 
 public enum LocalControlCommandName: String, Codable, Sendable {
-    case status, integrity, connect, disconnect, reconnect, models, model, settings, autodetect, ask, cancel, history, images, panel, quit
+    case status, integrity, visibility, connect, disconnect, reconnect, models, model, settings, autodetect, ask, cancel, history, images, panel, quit
 }
 
 public struct LocalControlCommand: Codable, Sendable {
@@ -60,6 +60,9 @@ public struct LocalControlModel: Codable, Equatable, Sendable { public let provi
 public struct LocalControlImage: Codable, Equatable, Sendable { public let id: String; public let timestamp: Date; public init(id: String, timestamp: Date) { self.id = id; self.timestamp = timestamp } }
 
 public struct LocalControlSnapshot: Codable, Equatable, Sendable {
+    public var sessionVisible: Bool = false
+    public var actualSessionVisible: Bool? = nil
+    public var sessionVisibilityPending: Bool = true
     public let app: String; public let connected: Bool; public let integrity: Bool; public let capture: String
     /// This is returned only to an explicit foreground CLI caller, never written to logs.
     public let message: String; public let models: [LocalControlModel]; public let currentModel: LocalControlModel?; public let settings: LocalControlSettings; public let images: [LocalControlImage]
