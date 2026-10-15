@@ -28,6 +28,9 @@ xcreen status
 xcreen --json status
 xcreen integrity get
 xcreen integrity on
+xcreen session visibility get
+xcreen session visibility on
+xcreen session visibility off
 xcreen connection reconnect
 xcreen models list
 xcreen model select PROVIDER EXACT_MODEL_ID
@@ -54,6 +57,7 @@ xcreen restart
 Ask, history and model inventory may reconnect the dedicated session; connection failures are explicit. Cancel targets the admitted manual question, including a question queued behind automatic work, not an unrelated automatic turn. Settings changes report persistence and reconnect failure separately. Global `--json` goes before the command; option-shaped question/setting values stay literal. Start launches the installed app without enabling capture; stop/quit request graceful app-owned teardown. No process-name kill is used by the CLI. See [CLI/tray parity](docs/cli-parity.md) for command semantics and security limits.
 
 ## Native pipeline and boundaries
+The tray's **Show session in Hermes** switch and `xcreen session visibility [get|on|off]` share one app-owned persisted preference, default **OFF (hidden)**. They update the existing active session, never create another conversation or change profile defaults. Connect/resume reapplies the saved preference. Offline changes are saved and reported **pending**, separately from gateway-confirmed visibility; they do not connect automatically. This switch does not affect Integrity or capture. See [CLI/tray parity](docs/cli-parity.md) for acknowledgment and lineage semantics.
 
 When explicitly enabled and all gates permit it, the foreground window is sampled for local Vision OCR at most once per eligible second. OCR >=90% similar to the last saved snapshot is discarded; independent screenshots are saved every ten active seconds. Five active minutes/30 images form a durable batch, sent with timestamp/ID binding to the same xCreen session. Private evidence files remain outside the vault and expire after seven days. No forensic-erasure or database-encryption claim is made; use FileVault.
 

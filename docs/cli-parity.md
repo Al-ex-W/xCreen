@@ -6,6 +6,7 @@ The app is authoritative. `bin/xcreen` is a standalone Python 3 client, installe
 |---|---|---|
 | Live state | Current published state | `status`, optionally `--json` |
 | Integrity | User's desired switch; persisted, default ON; actual safety status separate | `integrity get/on/off` |
+| Session visibility | Show session in Hermes; persisted, default OFF (hidden) | `session visibility get/on/off` |
 | Connection | Connect / Disconnect | `connection connect/disconnect/reconnect` |
 | Models | Provider-aware session picker | `models list`, `model select PROVIDER MODEL` |
 | Paths | Local settings Save | `settings show/set python/root/vault VALUE` |
@@ -27,6 +28,13 @@ Settings persistence, frozen launch settings, teardown and reconnect are one ord
 Global `--json` must precede the command (`xcreen --json status`). Values such as `xcreen ask "--json"` and `xcreen settings set vault "--json"` remain literal arguments. The optional wait flag follows the question, so `xcreen ask "--wait-ms"` is also a literal question.
 
 ## Security / limits
+### Session visibility contract
+
+The local request is `{"command":"visibility"}` to read, or `{"command":"visibility","value":"on"}` / `"off"` to save and apply. Tray and CLI use the same action and the same FIFO lifecycle queue. Reading never connects or changes visibility. A disconnected write saves desired intent without opening a session. Connect/resume reapplies intent before reporting ready; switching never creates/replaces the session.
+
+Snapshots include `sessionVisible` (desired, persisted per app as `xcreen.hermes.sessionVisible`, default false), `actualSessionVisible` (last validated acknowledgment on the current connection; absent when unknown), and `sessionVisibilityPending`. RPC failure preserves desired intent, clears actual to unknown, and reports pending rather than claiming applied. CLI mutation success means the preference was saved; inspect pending/actual or the explicit reply for application status. Connection can still succeed on hosts without the RPC, with visibility pending. Reconnect or another explicit switch retries. Confirmation is an acknowledgment, not continuous monitoring of changes made outside xCreen.
+
+The source-verified installed host API is `session.set_hidden` with explicit `{session_id: activeRuntimeID, hidden: !sessionVisible}`; its successful result contains Boolean `hidden` and nonempty `session_key`. The app validates both and checks the returned flag matches intent; it does not write SessionDB directly. Installed `tui_gateway/methods_session.py` resolves the live session key, retains `pending_hidden` for an unpersisted draft, and calls `SessionDB.set_session_hidden`; `hermes_state_sessions.py` applies that flag across the compression lineage. Lineage is host-managed, not a local session replacement. This requires a compatible Hermes host; no client-side database fallback is used. No inference, screenshot, vault read/write, Integrity transition or profile-default mutation is involved.
 
 - `~/.xcreen-control` must be owned by the current UID, a real directory, mode 0700. Unsafe/symlinked directories are rejected, not silently repaired.
 - `control.sock` is mode 0600. Server uses `getpeereid`, client uses macOS `LOCAL_PEERCRED`; both require same UID. This protects against other users, **not malicious processes already running as the same user**.

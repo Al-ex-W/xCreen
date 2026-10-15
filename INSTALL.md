@@ -18,6 +18,7 @@ The copied CLI and bundled runtime do not depend on the checkout. The installer 
 xcreen start
 xcreen status
 xcreen integrity get
+xcreen session visibility get
 xcreen settings show
 xcreen models list
 xcreen logs --no-follow
@@ -40,6 +41,7 @@ xcreen model select PROVIDER EXACT_MODEL_ID
 Settings are persisted by the running app and its gateway reconnects; session identity is retained. Do not use `defaults write` as a parallel live control surface. The installer pre-fills defaults only while the app is stopped.
 
 ## User-only deliberate actions
+The **Show session in Hermes** tray toggle defaults OFF (hidden). Use `xcreen session visibility on` or `off` to change that same persisted preference for the existing xCreen session. Offline changes remain pending until connection/resume applies them. `xcreen --json status` separates desired `sessionVisible`, last gateway-confirmed `actualSessionVisible` (absent when unknown), and `sessionVisibilityPending`. No profile defaults, session identity, Integrity preference or capture behavior change. Upgrading an existing install with no saved visibility preference applies hidden on its next connection, even if the session was previously manually unhidden.
 
 - Integrity OFF in the tray or `xcreen integrity off` explicitly consents to capture. The same actual service runs permission/state/exclusion gates for both interfaces. Permission denial leaves the user's desired switch unchanged and reports capture blocked; an explicit OFF action may show macOS's permission/settings UI. Do not bypass it. No development test should execute this action against a real capture service.
 - `xcreen ask "QUESTION"` explicitly authorizes that question in the xCreen session. Captured evidence can reach a model provider, and Hermes/provider history may outlive local seven-day retention.
