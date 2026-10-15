@@ -7,20 +7,10 @@ public struct CaptureGate {
     public mutating func invalidate() { generation &+= 1 }
     public mutating func setIntegrity(_ value: Bool) { invalidate(); integrity = value }
     public func begin(_ context: CaptureContext) -> UInt64? {
-        let id = context.bundleID.lowercased()
-        let exclusions = [
-            "1password", "bitwarden", "lastpass", "dashlane", "keepass", "keychain",
-            "loginwindow", "screenlock", "securityagent", "dev.xcreen.app", "com.apple.passwords",
-            "com.apple.systempreferences", "com.apple.systemsettings",
-            // Browsers are conservatively app-wide excluded until a reliable,
-            // separately consented private-window detector exists.
-            "com.apple.safari", "com.google.chrome", "org.mozilla.firefox",
-            "company.thebrowser.browser", "com.microsoft.edgemac", "com.brave.browser",
-            "com.kagi.kagimacos"
-        ]
+
         guard !integrity, context.permission, context.processID > 0, context.locked == false,
               context.idleSeconds.isFinite, context.idleSeconds >= 0, context.idleSeconds < 120,
-              !id.isEmpty, !exclusions.contains(where: { id.contains($0) }) else { return nil }
+              ForegroundCapturePolicy.isEligible(bundleID: context.bundleID) else { return nil }
         return generation
     }
 }

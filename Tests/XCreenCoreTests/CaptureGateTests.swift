@@ -40,6 +40,14 @@ final class CaptureGateTests: XCTestCase {
         XCTAssertNil(WindowSelection.frontmost([WindowCandidate(id: 1, pid: 11, layer: 0, width: .infinity, height: 400)], pid: 11))
         XCTAssertNil(WindowSelection.frontmost([WindowCandidate(id: 1, pid: 11, layer: 0, width: 20_000, height: 400)], pid: 11))
     }
+    func testBrowsersAreEligibleWithoutWeakeningCredentialExclusions() {
+        var gate = CaptureGate()
+        gate.setIntegrity(false)
+        for app in ["com.apple.Safari", "com.google.Chrome", "com.google.Chrome.canary", "org.mozilla.firefox", "com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser", "com.kagi.kagimacos"] {
+            XCTAssertNotNil(gate.begin(CaptureContext(permission: true, bundleID: app, processID: 42, locked: false, idleSeconds: 0)), app)
+        }
+    }
+
     func testIntegrityDefaultsOn() {
         XCTAssertTrue(CaptureGate().integrity, "Capture must be disabled on startup")
     }

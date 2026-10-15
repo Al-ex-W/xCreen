@@ -44,6 +44,7 @@ final class CaptureService {
     private var lifecycle = CaptureLifecycleState()
     private var lifecycleBlocks: Set<String> { lifecycle.blocks }
     private var statusTransition = CaptureStatusTransition()
+    private var exclusionDiagnostic = ForegroundExclusionDiagnostic()
 
     private func sessionBlockReason() -> String? {
         let epoch = lifecycle.epoch
@@ -154,6 +155,12 @@ final class CaptureService {
         guard enabled, ready, !storageBlocked, !Task.isCancelled else { return }
         guard lifecycleBlocks.isEmpty else { pause(reason: "Capture suspended · \(lifecycleBlocks.sorted().joined(separator: ", "))"); return }
         guard CGPreflightScreenCaptureAccess() else { pause(reason: "Capture paused · Screen Recording permission missing"); return }
+        // Diagnostic observation only; never reused to authorize capture. Security
+        // foregrounds can be vetoed by the session gate before app eligibility.
+        let observed = foregroundTarget()
+        if let message = exclusionDiagnostic.message(bundleID: observed.flatMap { $0.isEligible ? nil : $0.bundleID }) {
+            log.write(.capture, message)
+        }
         if let reason = sessionBlockReason() { pause(reason: "Capture blocked · \(reason)"); return }
         guard let target = foregroundTarget() else { await pauseClockForPrivacy("Capture enabled · foreground application is unknown"); return }
         guard target.isEligible else { await pauseClockForPrivacy("Capture enabled · foreground application is excluded"); return }
@@ -294,8 +301,6 @@ final class CaptureService {
 private struct ForegroundTarget: Equatable {
     let bundleID: String; let processID: pid_t
     var isEligible: Bool {
-        let id = bundleID.lowercased()
-        let excluded = ["1password", "bitwarden", "lastpass", "dashlane", "keepass", "keychain", "loginwindow", "screenlock", "securityagent", "com.apple.passwords", "com.apple.systemsettings", "com.apple.systempreferences", "com.apple.safari", "com.google.chrome", "org.mozilla.firefox", "com.microsoft.edgemac", "com.brave.browser", "dev.xcreen.app"]
-        return !excluded.contains(where: id.contains)
+        ForegroundCapturePolicy.isEligible(bundleID: bundleID)
     }
 }
