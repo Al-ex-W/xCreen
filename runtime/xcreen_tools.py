@@ -130,7 +130,7 @@ class EvidenceReader:
         return {"latest_ocr": latest("ocr"), "latest_image": latest("images"),
                 "desired_integrity": state.get("desired_integrity", "unknown"),
                 "capture_state": state.get("capture", "unknown"), "capture_reason": state.get("capture_reason", "unknown"),
-                "capture_status_timestamp": state.get("updated"), "excluded": "Browsers, credential/security surfaces and xCreen are excluded app-wide.",
+                "capture_status_timestamp": state.get("updated"), "excluded": "Known credential/security apps, System Settings and xCreen are excluded. Browsers are eligible; browser password fields, extensions and private windows are not detected or redacted.",
                 "retention_days": 7, "limitations": "Sparse retained snapshots, not continuous coverage. No match is not proof something was never seen. Pauses, exclusions, deduplication and expiry leave gaps; status is a timestamped observation, not live proof."}
 
     def recent_ocr(self, limit: object = _MAX_RESULTS, start=None, end=None) -> dict:
