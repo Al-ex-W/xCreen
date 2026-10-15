@@ -17,7 +17,7 @@ Before calling `tui_gateway.entry.main()`, the launcher registers six handlers t
 Available tools:
 
 - `xcreen_recent_ocr(limit?, start?, end?)` lists latest OCR without guessed keywords, optionally within an inclusive ISO-8601 range. Newest first, at most 20, with `has_more`, bounded snippets, local offset and UTC timestamps, and coverage information.
-- `xcreen_coverage()` reports latest retained OCR/image timestamps in local time and UTC, timestamped capture state/reason, app-wide browser/security exclusions and seven-day retention. This is sparse evidence, not continuous coverage or a live health probe; no match is not proof something was never seen. Missing status is explicitly unknown.
+- `xcreen_coverage()` reports latest retained OCR/image timestamps in local time and UTC, timestamped capture state/reason, known credential/security app exclusions and browser password/private-window limitations and seven-day retention. This is sparse evidence, not continuous coverage or a live health probe; no match is not proof something was never seen. Missing status is explicitly unknown.
 
 - `xcreen_search_ocr(query, limit?)` searches up to 12,000 persisted OCR characters using Unicode NFKC/casefold normalization, then returns at most 20 fresh records with ID, UTC/local timestamp, bounded match-centered text, truncation flag, app, and title.
 - `xcreen_images_near(timestamp, seconds?)` returns at most 20 fresh image IDs around an ISO-8601 timestamp.

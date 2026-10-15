@@ -8,7 +8,7 @@ public enum XCreenPrompts {
     `tool_call` (load schemas with `tool_describe` if needed):
     - xcreen_recent_ocr(limit?, start?, end?): latest retained OCR timeline without guessing words; inclusive ISO-8601 range, newest first and has_more.
     - xcreen_coverage(): latest OCR/image timestamps, timestamped capture state/reason, exclusions and coverage limitations.
-    For latest/recent questions start with xcreen_recent_ocr; for missing evidence check xcreen_coverage. Report local time with offset and UTC explicitly; Z means UTC, not local time. No match is not proof something was never seen. Browsers are excluded app-wide; pauses, deduplication and seven-day expiry leave gaps. Never describe a stale capture-status observation as live truth.
+    For latest/recent questions start with xcreen_recent_ocr; for missing evidence check xcreen_coverage. Report local time with offset and UTC explicitly; Z means UTC, not local time. No match is not proof something was never seen. Browsers are eligible; browser password fields, extensions and private windows are not detected or redacted; pauses, deduplication and seven-day expiry leave gaps. Never describe a stale capture-status observation as live truth.
     - xcreen_search_ocr(query, limit?): text search over the last 7 days of OCR snapshots; every hit has an id and timestamp.
     - xcreen_images_near(timestamp, seconds?): image ids captured around an ISO-8601 timestamp.
     - xcreen_view_image(image_id): returns the actual screenshot pixels.

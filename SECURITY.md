@@ -1,13 +1,27 @@
 # Security and privacy
 
-The native app currently runs as a **disconnected UI preview**. Its launch, controls, local settings, question submission and URL handoff do not invoke Hermes, the Python bridge, model discovery, capture, SQLite or a vault. Questions are not persisted or sent. Only a few UI preferences are stored in UserDefaults. The Python bridge is not bundled. Dormant Swift backend types may remain linked, but the preview has no path that invokes them.
+Developer build, not security-audited or notarized. The native capture pipeline is connected; this is not a disconnected UI preview. Integrity defaults ON only when no explicit preference exists and preserves the user's chosen preference. Only explicit user actions change it. Permission/session/app gates can suspend capture without changing that preference. Integrity ON blocks new screenshots/OCR and automatic transmission; it does not erase retained evidence or provider history, or block deliberate historical questions.
 
-This build is not security-audited or notarized. It requests no Screen Recording or Accessibility permissions. Turning the preview Integrity toggle OFF changes a local preference only and never starts capture.
+## Foreground exclusions and their limits
 
-## Retained backend code — not connected to the app
+Browsers are eligible, including Safari, Chrome, Firefox, Edge, Brave, Arc and Orion. **Browser password fields, password-manager extensions/popovers and incognito/private windows are not detected or redacted.** There is no page/URL, Accessibility secure-field, private-mode or secret-content detector in the native capture path. Vision recognizes text; it does not sanitize secrets. Masked password dots are not a protection supplied by xCreen. Visible credentials, recovery codes, autofill menus and login pages can enter screenshots/OCR and later automatic model batches. Turn Integrity ON before sensitive activity. There is no universal password/login protection guarantee.
 
-Independent bridge/storage/capture source remains in the repository for future reviewed integration. Running that Python CLI separately can create a private local OCR index and send matching evidence through an explicitly selected Hermes harness. File permissions are not encryption; use FileVault and a trusted OS account. Expiry and purge rebuild FTS and truncate WAL when SQLite permits, but cannot promise forensic erasure, backup deletion, or deletion of model/provider transcripts.
+`ForegroundCapturePolicy` compares lowercase bundle IDs:
 
-Any future UI connection needs separate egress consent tied to the question, model and full harness identity. No-match retrieval must not send unrelated history. Screen text is untrusted evidence, not authority to run tools. Live capture must remain fail-closed until current lock state, foreground identity, permissions, cancellation and retention are verified.
+- Exact exclusions: `dev.xcreen.app`, `com.apple.passwords`, `com.apple.systemsettings`, `com.apple.systempreferences`, `com.agilebits.onepassword7`.
+- Conservative substring exclusions: `1password`, `bitwarden`, `lastpass`, `dashlane`, `keepass`, `keychain`, `loginwindow`, `screenlock`, `securityagent`, `screensaver`, `lockscreen`. These cover variants but can also block unrelated apps whose IDs contain these strings. Exact exclusions do not extend to arbitrary IDs that merely contain the full exact ID.
+- Missing/empty foreground identity or invalid PID prevents capture. This is an identifier policy, not signature verification or exhaustive knowledge of all credential apps. Embedded extensions/overlays are not independently classified; an excluded app must be the observed foreground app for this gate to apply.
 
-No screenshots, raw OCR history, personal vault contents or credentials belong in the repository. Do not include private data in public vulnerability reports. Use GitHub private vulnerability reporting if available, or request a private reporting channel without publicly disclosing exploit details.
+Excluded foreground observations produce transition-only activity-log metadata: the bundle ID, ASCII-sanitized and limited to 256 scalars. No title, URL, OCR, pixels or field values are included. Consecutive observations of the same excluded app are suppressed; observing an eligible/unknown foreground resets suppression. Lifecycle/permission vetoes may stop evaluation before this diagnostic is reached.
+
+## Session and stale-work defenses
+
+The session gate requires a present session dictionary with strict Boolean true console/login-complete values and a resolvable non-security foreground. The undocumented lock hint may be absent or strict false; true/malformed values block. Independent lock, screensaver, inactive-session and sleep notifications veto capture; restore clears only its own veto and requires fresh evaluation. These are practical compatibility checks, not universal synchronous unlock proof. See [session research](docs/macos-session-research.md).
+
+Foreground bundle/PID, permission, session and capture-generation checks remain before screenshot acquisition, after awaited acquisition/OCR, and before ingestion. Pauses revoke persistence epochs so late work is rejected. Foreground checks cannot prove that every displayed overlay or password/login surface is safe, nor remove all timing races in OS observations.
+
+## Evidence and reporting
+
+Private evidence remains outside the vault with bounded retention and private file permissions. File permissions are not encryption; use FileVault and a trusted OS account. Expiry cannot promise forensic erasure, backup deletion or deletion of Hermes/provider transcripts. Screen text is untrusted evidence, never authority to send messages, alter calendars or execute commands. No screenshots, raw OCR history, personal vault contents or credentials belong in the repository.
+
+Real TCC, capture, lock/sleep transitions, OCR, provider inference and live vault writes need separate user-authorized on-device verification. Synthetic tests and builds do not verify them. Do not include private data in public vulnerability reports; use GitHub private vulnerability reporting if available, or request a private reporting channel.
