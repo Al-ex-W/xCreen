@@ -2,6 +2,82 @@ import XCTest
 @testable import XCreenCore
 
 @MainActor final class SharedSessionControllerTests: XCTestCase {
+    func testVisibilityFailedRPCLeavesSavedIntentPendingUntilReconnect() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let gateway = ControlledGateway()
+        let controller = SharedSessionController(gateway: gateway, records: ControllerRecords(), defaults: defaults)
+        let launch = HermesGatewayLaunch.command(executable: "/usr/bin/true", arguments: [])
+        try await controller.connect(launch: launch)
+        await gateway.failNextVisibility()
+        do { try await controller.setSessionVisible(true); XCTFail("RPC failure suppressed") } catch {}
+        XCTAssertTrue(controller.sessionVisible)
+        XCTAssertTrue(defaults.bool(forKey: "xcreen.hermes.sessionVisible"))
+        XCTAssertTrue(controller.visibilityPending)
+        XCTAssertNil(controller.actualSessionVisible)
+        try await controller.reconnect(launch: launch)
+        XCTAssertEqual(controller.actualSessionVisible, true)
+        XCTAssertFalse(controller.visibilityPending)
+    }
+    func testVisibilityOfflinePersistsAndReconnectAppliesSavedPreference() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let gateway = ControlledGateway()
+        let controller = SharedSessionController(gateway: gateway, records: ControllerRecords(), defaults: defaults)
+        try await controller.setSessionVisible(true)
+        XCTAssertTrue(controller.visibilityPending)
+        XCTAssertNil(controller.actualSessionVisible)
+        let offlineCalls = await gateway.visibilityCalls
+        XCTAssertTrue(offlineCalls.isEmpty)
+        let restored = SharedSessionController(gateway: gateway, records: ControllerRecords(), defaults: defaults)
+        XCTAssertTrue(restored.sessionVisible)
+        try await restored.connect(launch: .command(executable: "/usr/bin/true", arguments: []))
+        XCTAssertEqual(restored.actualSessionVisible, true)
+        XCTAssertFalse(restored.visibilityPending)
+        await restored.disconnect()
+        XCTAssertNil(restored.actualSessionVisible)
+        try await restored.setSessionVisible(false)
+        try await restored.connect(launch: .command(executable: "/usr/bin/true", arguments: []))
+        XCTAssertEqual(restored.actualSessionVisible, false)
+        let calls = await gateway.visibilityCalls
+        XCTAssertEqual(calls, ["synthetic-runtime:false", "synthetic-runtime:true"])
+        let opens = await gateway.openRequests
+        XCTAssertEqual(opens, [nil, "synthetic"], "reconnect must resume the stored identity")
+    }
+
+    func testVisibilityCannotOvertakeConnectingLifecycleTransaction() async throws {
+        let gateway = ControlledGateway()
+        let controller = SharedSessionController(gateway: gateway, records: ControllerRecords(), defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        await gateway.holdNextStart()
+        let connect = Task { try await controller.connect(launch: .command(executable: "/usr/bin/true", arguments: [])) }
+        await gateway.waitForStarts(1)
+        let show = Task { try await controller.setSessionVisible(true) }
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertFalse(controller.sessionVisible)
+        await gateway.releaseStart()
+        try await connect.value
+        try await show.value
+        let calls = await gateway.visibilityCalls
+        XCTAssertEqual(calls, ["synthetic-runtime:true", "synthetic-runtime:false"])
+        XCTAssertEqual(controller.actualSessionVisible, true)
+    }
+    func testVisibilityDefaultsHiddenAndSwitchesSameRuntimeSession() async throws {
+        let gateway = ControlledGateway()
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let controller = SharedSessionController(gateway: gateway, records: ControllerRecords(), defaults: defaults)
+        XCTAssertFalse(controller.sessionVisible)
+        XCTAssertNil(controller.actualSessionVisible)
+        let launch = HermesGatewayLaunch.command(executable: "/usr/bin/true", arguments: [])
+        try await controller.connect(launch: launch)
+        XCTAssertEqual(controller.actualSessionVisible, false)
+        try await controller.setSessionVisible(true)
+        try await controller.setSessionVisible(false)
+        let calls = await gateway.visibilityCalls
+        XCTAssertEqual(calls, ["synthetic-runtime:true", "synthetic-runtime:false", "synthetic-runtime:true"])
+        XCTAssertEqual(controller.actualSessionVisible, false)
+        XCTAssertFalse(defaults.bool(forKey: "xcreen.hermes.sessionVisible"))
+        let opens = await gateway.openRequests
+        XCTAssertEqual(opens, [nil], "switching visibility must not open another session")
+    }
+
     func testOldAutomaticTransmissionClosureCannotAuthorizeReplacementTurn() async throws {
         let gateway = ControlledGateway()
         let controller = SharedSessionController(gateway: gateway, records: ControllerRecords())
@@ -270,6 +346,15 @@ import XCTest
 }
 
 private actor ControlledGateway: HermesGatewayTransport {
+    var openRequests: [String?] = []
+    var visibilityCalls: [String] = []
+    private var failVisibility = false
+    func failNextVisibility() { failVisibility = true }
+    func setHidden(sessionID: String, hidden: Bool) async throws -> Bool {
+        visibilityCalls.append("\(sessionID):\(hidden)")
+        if failVisibility { failVisibility = false; throw HermesGatewayError.unavailable }
+        return hidden
+    }
     private var streams: [AsyncStream<HermesGatewayEvent>.Continuation] = []
     var submitCount = 0
     var cancelCount = 0
@@ -302,7 +387,7 @@ private actor ControlledGateway: HermesGatewayTransport {
     func stop() async { operations.append("stop"); streams.forEach { $0.finish() }; streams.removeAll() }
     func events() async -> AsyncStream<HermesGatewayEvent> { let pair = AsyncStream<HermesGatewayEvent>.makeStream(); streams.append(pair.continuation); return pair.stream }
     func gatewayCapabilities() async throws -> HermesGatewayCapabilities { .init(perSessionExclusiveSubmit: true) }
-    func open(storedSessionID: String?) async throws -> HermesSessionIdentity { .init(storedID: "synthetic", runtimeID: "synthetic-runtime") }
+    func open(storedSessionID: String?) async throws -> HermesSessionIdentity { openRequests.append(storedSessionID); return .init(storedID: "synthetic", runtimeID: "synthetic-runtime") }
     func models(sessionID: String) async throws -> Data { if holdModels { holdModels = false; await withCheckedContinuation { modelWaiter = $0 } }; return Data("{\"providers\":[]}".utf8) }
     func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { Data() }
     func compress(sessionID: String) async throws -> Data { if holdCompression { holdCompression = false; await withCheckedContinuation { compressionWaiter = $0 } }; return Data() }

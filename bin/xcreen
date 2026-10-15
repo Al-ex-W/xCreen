@@ -13,6 +13,7 @@ import time
 HELP = '''usage: xcreen [--json] COMMAND
   status                         live app-owned state (never cached status.json)
   integrity [get|on|off]          off is explicit capture consent, subject to macOS gates
+  session visibility [get|on|off]  show/hide the same Hermes session (default off)
   connection connect|disconnect|reconnect  (also accepted as top-level commands)
   models [list] | model select PROVIDER MODEL
   settings [show] | settings set python|root|vault VALUE
@@ -30,6 +31,11 @@ def parse_command(args):
     if not args:
         raise ValueError(HELP)
     name, *rest = args
+    if name == 'session' and rest and rest[0] == 'visibility':
+        if rest[1:] in ([], ['get']):
+            return {'command': 'visibility'}
+        if rest[1:] in (['on'], ['off']):
+            return {'command': 'visibility', 'value': rest[1]}
     if name == 'connection' and len(rest) == 1:
         name, rest = rest[0], []
     if name in ('status', 'connect', 'disconnect', 'reconnect', 'cancel', 'history', 'quit', 'autodetect') and not rest:

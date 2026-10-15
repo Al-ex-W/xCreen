@@ -20,6 +20,18 @@ class CLITests(unittest.TestCase):
                 cli.main(args)
                 request.assert_called_once_with(expected)
 
+    def test_session_visibility_parser(self):
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        assert spec is not None
+        cli = importlib.util.module_from_spec(spec)
+        loader.exec_module(cli)
+        for value in ('get', 'on', 'off'):
+            expected = {'command': 'visibility'}
+            if value != 'get': expected['value'] = value
+            self.assertEqual(cli.parse_command(['session', 'visibility', value]), expected)
+        for args in (['session', 'visibility', 'maybe'], ['session', 'visibility', 'on', 'off']):
+            self.assertRaises(ValueError, cli.parse_command, args)
+
     def test_integrity_get_and_off_consent(self):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         assert spec is not None

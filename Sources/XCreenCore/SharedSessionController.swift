@@ -17,9 +17,16 @@ import Foundation
     public private(set) var activeManualID: UUID?
     private var cancelledQuestions: Set<UUID> = []
     private var runtimeAdmissions: Set<UUID> = []
+    private let defaults: UserDefaults
+    public private(set) var sessionVisible: Bool
+    public private(set) var actualSessionVisible: Bool?
+    public var visibilityChanged: (@MainActor () -> Void)?
+    public var visibilityPending: Bool { actualSessionVisible != sessionVisible }
 
-    public init(gateway: any HermesGatewayTransport, records: HermesSessionRecordStore = UserDefaultsHermesSessionRecordStore()) {
+    public init(gateway: any HermesGatewayTransport, records: HermesSessionRecordStore = UserDefaultsHermesSessionRecordStore(), defaults: UserDefaults = .standard) {
         self.gateway = gateway
+        self.defaults = defaults
+        sessionVisible = defaults.object(forKey: "xcreen.hermes.sessionVisible") as? Bool ?? false
         runtime = HermesSessionRuntime(gateway: gateway, records: records)
     }
     deinit { observer?.cancel() }
@@ -44,6 +51,26 @@ import Foundation
     }
     public func disconnect() async {
         _ = try? await ordered { await self.disconnectLocked() }.value
+    }
+    /// Save intent even offline; only a validated gateway acknowledgment establishes actual state.
+    public func setSessionVisible(_ visible: Bool) async throws {
+        try await ordered {
+            self.sessionVisible = visible
+            self.defaults.set(visible, forKey: "xcreen.hermes.sessionVisible")
+            self.visibilityChanged?()
+            guard self.connected else { return }
+            try await self.applyVisibilityLocked()
+        }.value
+    }
+    private func applyVisibilityLocked() async throws {
+        actualSessionVisible = nil
+        visibilityChanged?()
+        guard let identity = await runtime.currentSession() else { throw HermesGatewayError.unavailable }
+        let token = generation
+        let hidden = try await gateway.setHidden(sessionID: identity.runtimeSessionID, hidden: !sessionVisible)
+        guard token == generation, hidden == !sessionVisible else { throw HermesGatewayError.protocolFailure }
+        actualSessionVisible = !hidden
+        visibilityChanged?()
     }
     /// Reserve identity before creating any task or awaiting connection. Cancel always
     /// refers to this question, including when automatic work is occupying the runtime.
@@ -109,13 +136,19 @@ import Foundation
             try await self.connectLocked(launch: launch)
         }.value
     }
-    private func publishConnection(_ value: Bool) { connected = value; connectionChanged?(value) }
+    private func publishConnection(_ value: Bool) {
+        connected = value
+        if !value { actualSessionVisible = nil; visibilityChanged?() }
+        connectionChanged?(value)
+    }
     private func connectLocked(launch: HermesGatewayLaunch) async throws {
         guard !connected else { return }
         generation &+= 1
         let token = generation
         do {
             try await runtime.connect(launch: configuredLaunch ?? launch)
+            // Visibility failure leaves desired saved/pending, not a falsely confirmed state.
+            do { try await applyVisibilityLocked() } catch { actualSessionVisible = nil; visibilityChanged?() }
             let stream = await gateway.events()
             observer = Task { [weak self] in
                 for await event in stream {

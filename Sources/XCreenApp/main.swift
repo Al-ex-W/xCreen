@@ -59,7 +59,8 @@ import XCreenCore
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        controller = SharedSessionController(gateway: gateway, records: UserDefaultsHermesSessionRecordStore(defaults: defaults))
+        controller = SharedSessionController(gateway: gateway, records: UserDefaultsHermesSessionRecordStore(defaults: defaults), defaults: defaults)
+
         integrity = defaults.object(forKey: "xcreen.integrity") as? Bool ?? true
         integrityTransition = controller.setIntegrity(true) // Transmission blocked until current safety verified.
         hermesPython = defaults.string(forKey: "xcreen.hermes.python") ?? ""
@@ -72,6 +73,7 @@ import XCreenCore
             self.log.updateStatus(["hermes": value ? "connected" : "disconnected"])
         }
         controller.eventReceived = { [weak self] event in self?.receiveGatewayEvent(event) }
+        controller.visibilityChanged = { [weak self] in self?.objectWillChange.send() }
         controller.connectionReady = { [weak self] identity, inventory in
             guard let self else { return }
             self.storedSessionID = identity.storedSessionID
@@ -302,6 +304,14 @@ import XCreenCore
                 self.hermesModels = try HermesModelRoute.decodeInventory(inventory)
                 self.applyInventorySelection(inventory)
             }
+        case .visibility:
+            if let value = command.value {
+                guard value == "on" || value == "off" else { throw LocalControlError.invalidRequest("visibility must be on or off") }
+                do { try await controller.setSessionVisible(value == "on") }
+                catch { submissionMessage = "Session visibility saved; pending: \(error.localizedDescription)"; return .ok(snapshot(), reply: submissionMessage) }
+            }
+            return .ok(snapshot(), reply: controller.visibilityPending ? "Session visibility \(controller.sessionVisible ? "on" : "off") saved; pending gateway confirmation." : "Session visibility \(controller.sessionVisible ? "on" : "off") confirmed by Hermes.")
+
         case .model:
             guard let provider = command.provider, let model = command.model, hermesModels.contains(where: { $0.provider == provider && $0.model == model }) else { throw LocalControlError.invalidRequest("unknown configured provider/model") }
             try await controller.switchModel(model: model, provider: provider) { self.selectedHermesModel = "\(provider)::\(model)" }
@@ -369,8 +379,14 @@ import XCreenCore
         let routes = hermesModels.map { LocalControlModel(provider: $0.provider, model: $0.model) }
         let current = hermesModels.first(where: { $0.id == selectedHermesModel }).map { LocalControlModel(provider: $0.provider, model: $0.model) }
         let images = appendix.map { LocalControlImage(id: $0.id, timestamp: $0.timestamp) }
-        return .init(app: "running", connected: connected, integrity: integrity, capture: captureStatus, message: submissionMessage, models: routes, currentModel: current, settings: .init(python: hermesPython, root: hermesRoot, vault: vaultPath), images: images)
+        var result = LocalControlSnapshot(app: "running", connected: connected, integrity: integrity, capture: captureStatus, message: submissionMessage, models: routes, currentModel: current, settings: .init(python: hermesPython, root: hermesRoot, vault: vaultPath), images: images)
+        result.sessionVisible = controller.sessionVisible
+        result.actualSessionVisible = controller.actualSessionVisible
+        result.sessionVisibilityPending = controller.visibilityPending
+        return result
     }
+    var sessionVisible: Bool { controller.sessionVisible }
+    var visibilityStatus: String { controller.visibilityPending ? "Saved preference; pending gateway confirmation." : "Confirmed by Hermes for this session." }
 }
 
 @MainActor private final class TurnCompletion { var done = false; var error: Error?; var reply: String? }
@@ -405,6 +421,10 @@ struct Panel: View {
             Text(state.captureStatus).font(.caption).foregroundStyle(.secondary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Toggle("Show session in Hermes", isOn: Binding(get: { state.sessionVisible }, set: { state.runControl(["command": "visibility", "value": $0 ? "on" : "off"]) }))
+                .toggleStyle(.switch)
+            Text(state.visibilityStatus).font(.caption).foregroundStyle(.secondary)
 
             if !state.hermesModels.isEmpty {
                 Picker("Hermes session model", selection: Binding(get: { state.selectedHermesModel }, set: { state.switchHermesModel($0) })) {

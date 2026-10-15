@@ -2,6 +2,17 @@ import XCTest
 @testable import XCreenCore
 
 final class HermesGatewayRuntimeTests: XCTestCase {
+    func testVisibilityRPCUsesExplicitBooleanAndSameActiveSession() async throws {
+        let script = try makeGatewayScript()
+        defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
+        let gateway = HermesGateway(defaultDeadline: 1)
+        try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
+        let hidden = try await gateway.setHidden(sessionID: "runtime-xcreen", hidden: true)
+        let shown = try await gateway.setHidden(sessionID: "runtime-xcreen", hidden: false)
+        XCTAssertTrue(hidden)
+        XCTAssertFalse(shown)
+        await gateway.stop()
+    }
     func testOldProcessExitCannotDisconnectReplacement() async throws {
         let script = try makeGatewayScript(terminationDelay: 0.3)
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
@@ -99,6 +110,10 @@ for line in sys.stdin:
     rid = request.get("id")
     if method == "session.resume": result = json.loads(RESUME)
     elif method == "gateway.capabilities": result = {"per_session_exclusive_submit":True}
+    elif method == "session.set_hidden":
+        assert request['params']['session_id'] == 'runtime-xcreen'
+        assert type(request['params']['hidden']) is bool
+        result = {"hidden":request['params']['hidden'],"session_key":"stored-xcreen"}
     elif method == "session.history":
         assert request['params']['session_id'] == 'runtime-xcreen'
         result = {"count":1,"messages":[{"role":"assistant","content":"synthetic durable reply"}]}
