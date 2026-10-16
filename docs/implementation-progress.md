@@ -34,9 +34,7 @@ xCreen session ──tool_call──▶ xcreen_search_ocr · xcreen_images_near 
   `hermes` launcher. It registers the six `xcreen` tools through `tools.registry`, pins
   `HERMES_TUI_TOOLSETS=xcreen` for this child process only, then starts `tui_gateway.entry`.
   See [toolkit-contract.md](toolkit-contract.md).
-- **Daily writer**: active only when a vault is configured. It writes only to an existing
-  `Daily/YYYY-MM-DD.md` and only with validated source IDs from the same capture date. Each write
-  takes a shared `fcntl` lock, adds an idempotency marker and is checked by reading it back.
+- **Daily writer**: active only when a vault is configured. Validated sources select `Daily/YYYY-MM-DD.md` in the configured capture timezone. Missing dated files may be exclusively created with a minimal heading in the existing Daily directory. No-follow descriptor access, shared `fcntl` lock, source IDs/UTC stamps, stable batch/entry markers, metadata-only SQLite entry receipts and exact readback protect append-only effects. Recovery APIs detect committed notes independently of raw evidence/host context; uncertain partial or edited effects require manual reconciliation. These APIs still need controller/startup/CLI/tray integration. Native admission-aware retry/deadletter, ambiguous-send fencing and CLI/tray batch metadata are implemented, with bounded native history snapshot pages. Host-owned batch result/skip receipts, startup/effect reconciliation and upstream history pagination remain incomplete; see [native durability boundary](durable-native-processing.md). Do not claim robust periodic completion yet.
 - **Reply appendix**: the tray extracts only `xcreen-image:<id>` references, resolves them through
   the store and shows them as thumbnails under the answer. Arbitrary paths and remote URLs are never
   loaded.

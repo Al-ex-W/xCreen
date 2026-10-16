@@ -13,7 +13,9 @@ The app is authoritative. `bin/xcreen` is a standalone Python 3 client, installe
 | Detection | Auto-detect | `settings autodetect` or `autodetect` |
 | Question | Ask / Enter | `ask QUESTION [--wait-ms N]` |
 | Cancellation | Cancel | `cancel` |
-| Durable history | Existing xCreen conversation in Hermes | `history` reads `session.history` |
+| Durable history | Existing xCreen conversation in Hermes | `history [--after CURSOR]` reads sanitized snapshot pages |
+| Batch state | Durable batches / Refresh / Next page | `batches [--after BATCH_ID]`, at most 20 metadata records |
+| Receipt verification | Durable batches / Verify receipts | `verify`, read-only host reconciliation, no inference/note writes |
 | Reply images | Resolved attachment cards / Open | `images list/open ID` |
 | Panel | Status item / handoff | `panel show/hide` |
 | Lifecycle | Quit | `start/stop/restart/quit` |
@@ -23,7 +25,7 @@ Model selection uses literal configured provider/model identifiers and session-s
 
 Settings persistence, frozen launch settings, teardown and reconnect are one ordered transaction; auto-detection is inside that same gate. CLI single-key writes merge at their transaction's turn. A reconnect failure is reported explicitly as settings saved / reconnect failed, not suppressed as success. Reconnect preserves the session record. UI and runtime event observers are generation-bound, so old EOF/events cannot disconnect a replacement.
 
-`ask QUESTION --wait-ms N` limits response waiting, not inference lifetime; expiry leaves the admitted turn running and returns no reply. A completed wait returns that turn's complete output collected by the runtime, not whichever text the independent UI observer last displayed. A question gets an identity before any connection/task await. `cancel` removes that question if queued, prevents later admission if still connecting, and interrupts the runtime only if that exact question is current. It does not cancel an unrelated automatic batch, and fails explicitly when there is no admitted manual question. Use history/cancel to follow up. History is bounded to 500 KB and fails explicitly when larger (no invented totals). Images expose only IDs/timestamps for the current reply appendix; Open resolves the app-owned evidence path, not a caller-supplied path.
+`ask QUESTION --wait-ms N` limits response waiting, not inference lifetime; expiry leaves the admitted turn running and returns no reply. A completed wait returns that turn's complete output collected by the runtime, not whichever text the independent UI observer last displayed. A question gets an identity before any connection/task await. `cancel` removes that question if queued, prevents later admission if still connecting, and interrupts the runtime only if that exact question is current. It does not cancel an unrelated automatic batch, and fails explicitly when there is no admitted manual question. Use history/cancel to follow up. History pages use `xcreen.history.page`: the host sanitizes and byte-bounds frozen snapshot pages before gateway stdout, with oversized-message placeholders and stable `next_cursor`. See [durable native processing](durable-native-processing.md) for cursor lifetime, exact receipt verification, and archive budgets. Images expose only IDs/timestamps for the current reply appendix; Open resolves the app-owned evidence path, not a caller-supplied path.
 
 Global `--json` must precede the command (`xcreen --json status`). Values such as `xcreen ask "--json"` and `xcreen settings set vault "--json"` remain literal arguments. The optional wait flag follows the question, so `xcreen ask "--wait-ms"` is also a literal question.
 
