@@ -58,6 +58,10 @@ public protocol HermesGatewayTransport: Sendable {
     func open(storedSessionID: String?) async throws -> HermesSessionIdentity
     func models(sessionID: String) async throws -> Data
     func history(sessionID: String) async throws -> Data
+    func historyPage(sessionID: String, cursor: String?) async throws -> Data
+    func manualContext(sessionID: String) async throws
+    func prepareBatch(sessionID: String, batchID: String, sourceIDs: [String]) async throws -> Data
+    func batchReceipt(sessionID: String, batchID: String, sourceIDs: [String]) async throws -> Data
     func setHidden(sessionID: String, hidden: Bool) async throws -> Bool
     func switchModel(sessionID: String, model: String, provider: String) async throws -> Data
     func compress(sessionID: String) async throws -> Data
@@ -68,6 +72,10 @@ public protocol HermesGatewayTransport: Sendable {
 }
 
 public extension HermesGatewayTransport {
+    func manualContext(sessionID: String) async throws { throw HermesGatewayError.unavailable }
+    func historyPage(sessionID: String, cursor: String?) async throws -> Data { throw HermesGatewayError.unavailable }
+    func prepareBatch(sessionID: String, batchID: String, sourceIDs: [String]) async throws -> Data { throw HermesGatewayError.unavailable }
+    func batchReceipt(sessionID: String, batchID: String, sourceIDs: [String]) async throws -> Data { throw HermesGatewayError.unavailable }
     func setHidden(sessionID: String, hidden: Bool) async throws -> Bool { throw HermesGatewayError.unavailable }
     func history(sessionID: String) async throws -> Data { throw HermesGatewayError.unavailable }
 }
@@ -145,6 +153,23 @@ public actor HermesGateway: HermesGatewayTransport {
     }
     public func models(sessionID: String) async throws -> Data { try await request("model.options", ["session_id": sessionID, "explicit_only": false]) }
     public func history(sessionID: String) async throws -> Data { try await request("session.history", ["session_id": sessionID]) }
+    public func historyPage(sessionID: String, cursor: String?) async throws -> Data {
+        var params: [String: Any] = ["session_id": sessionID, "max_bytes": 48_000, "limit": 20]
+        if let cursor { params["cursor"] = cursor }
+        let data = try await request("xcreen.history.page", params)
+        guard data.count <= 48_000 else { throw HermesGatewayError.protocolFailure }
+        return data
+    }
+    public func manualContext(sessionID: String) async throws {
+        let reply = try decodeObject(await request("xcreen.batch.context", ["session_id": sessionID, "mode": "manual"]))
+        guard reply["session_id"] as? String == sessionID, reply["mode"] as? String == "manual" else { throw HermesGatewayError.protocolFailure }
+    }
+    public func prepareBatch(sessionID: String, batchID: String, sourceIDs: [String]) async throws -> Data {
+        try await request("xcreen.batch.prepare", ["session_id": sessionID, "batch_id": batchID, "source_ids": sourceIDs])
+    }
+    public func batchReceipt(sessionID: String, batchID: String, sourceIDs: [String]) async throws -> Data {
+        try await request("xcreen.batch.receipt", ["session_id": sessionID, "batch_id": batchID, "source_ids": sourceIDs, "reconcile": true])
+    }
     public func setHidden(sessionID: String, hidden: Bool) async throws -> Bool {
         let reply = try decodeObject(await request("session.set_hidden", ["session_id": sessionID, "hidden": hidden]))
         guard let flag = reply["hidden"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID(),

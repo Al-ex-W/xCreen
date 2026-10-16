@@ -32,6 +32,27 @@ class CLITests(unittest.TestCase):
         for args in (['session', 'visibility', 'maybe'], ['session', 'visibility', 'on', 'off']):
             self.assertRaises(ValueError, cli.parse_command, args)
 
+    def test_bounded_history_and_batch_page_parser(self):
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        assert spec is not None
+        cli = importlib.util.module_from_spec(spec)
+        loader.exec_module(cli)
+        for name in ('history', 'batches'):
+            self.assertEqual(cli.parse_command([name]), {'command': name})
+            self.assertEqual(cli.parse_command([name, '--after', 'stable-cursor']), {'command': name, 'value': 'stable-cursor'})
+            self.assertRaises(ValueError, cli.parse_command, [name, '--after'])
+
+    def test_verify_is_one_readonly_control_request(self):
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        assert spec is not None
+        cli = importlib.util.module_from_spec(spec)
+        loader.exec_module(cli)
+        with patch.object(cli, 'request', return_value={'ok': True, 'reply': 'verified'}) as request, patch('builtins.print'):
+            self.assertEqual(cli.main(['verify']), 0)
+            request.assert_called_once_with({'command': 'verify'})
+        self.assertRaises(ValueError, cli.parse_command, ['verify', '--write'])
+
     def test_integrity_get_and_off_consent(self):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         assert spec is not None

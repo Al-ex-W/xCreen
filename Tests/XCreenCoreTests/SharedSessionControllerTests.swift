@@ -391,6 +391,7 @@ private actor ControlledGateway: HermesGatewayTransport {
     func models(sessionID: String) async throws -> Data { if holdModels { holdModels = false; await withCheckedContinuation { modelWaiter = $0 } }; return Data("{\"providers\":[]}".utf8) }
     func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { Data() }
     func compress(sessionID: String) async throws -> Data { if holdCompression { holdCompression = false; await withCheckedContinuation { compressionWaiter = $0 } }; return Data() }
+    func manualContext(sessionID: String) async throws {}
     func submit(sessionID: String, text: String) async throws -> Data { submitCount += 1; return Data() }
     func submitBatch(sessionID: String, text: String, images: [HermesEvidenceAttachment], transmissionAllowed: @escaping @Sendable () async -> Bool) async throws { transmissions.append(transmissionAllowed); guard await transmissionAllowed() else { throw HermesGatewayError.cancelled }; submitCount += 1 }
     func cancel(sessionID: String) async throws -> Data { cancelCount += 1; return Data() }

@@ -2,6 +2,48 @@ import XCTest
 @testable import XCreenCore
 
 final class HermesSessionRuntimeSafetyTests: XCTestCase {
+    func testManualContextFailureNeverSubmits() async throws {
+        let gateway = FakeGateway()
+        await gateway.failManualContext()
+        let runtime = HermesSessionRuntime(gateway: gateway, records: MemoryRecords())
+        try await runtime.connect(launch: .command(executable: "/usr/bin/true", arguments: []))
+        await XCTAssertThrowsErrorAsync(try await runtime.submitManual("denied context"))
+        let count = await gateway.submissionCount()
+        XCTAssertEqual(count, 0)
+        await runtime.disconnect()
+    }
+    func testManualRevokesAutomaticContextEvenAfterNoToolsTurn() async throws {
+        let gateway = FakeGateway()
+        let runtime = HermesSessionRuntime(gateway: gateway, records: MemoryRecords())
+        try await runtime.connect(launch: .command(executable: "/usr/bin/true", arguments: []))
+        await runtime.setIntegrity(false)
+        let batch = Task { try await runtime.submitAutomatic(manifest: "automatic", images: []) }
+        await gateway.waitForSubmission(count: 1)
+        let manual = Task { try await runtime.submitManual("manual") }
+        await gateway.emit(type: "message.complete")
+        try await batch.value
+        await gateway.waitForSubmission(count: 2)
+        let contexts = await gateway.contextCount()
+        XCTAssertEqual(contexts, 1)
+        await gateway.emit(type: "message.complete")
+        try await manual.value
+        await runtime.disconnect()
+    }
+    func testAdmissionIntentAndAcknowledgmentArePersistedBeforeTerminalResult() async throws {
+        let gateway = FakeGateway()
+        let runtime = HermesSessionRuntime(gateway: gateway, records: MemoryRecords())
+        try await runtime.connect(launch: .command(executable: "/usr/bin/true", arguments: []))
+        await runtime.setIntegrity(false)
+        let phases = PhaseLog()
+        let work = Task { try await runtime.submitAutomatic(manifest: "synthetic", images: [], phaseChanged: { await phases.append($0) }) }
+        await gateway.waitForSubmission(count: 1)
+        try await Task.sleep(for: .milliseconds(20))
+        let recorded = await phases.values
+        XCTAssertEqual(recorded, [.submitting, .admitted])
+        await gateway.emit(type: "message.complete")
+        try await work.value
+    }
+
     func testDefaultCancelTargetsQueuedManualNotAutomaticCurrent() async throws {
         let gateway = FakeGateway()
         let runtime = HermesSessionRuntime(gateway: gateway, records: MemoryRecords())
@@ -101,6 +143,11 @@ final class HermesSessionRuntimeSafetyTests: XCTestCase {
     }
 }
 
+private actor PhaseLog {
+    var values: [EvidenceStore.BatchState] = []
+    func append(_ state: EvidenceStore.BatchState) { values.append(state) }
+}
+
 private actor FakeGateway: HermesGatewayTransport {
     private let pair = AsyncStream<HermesGatewayEvent>.makeStream()
     private var submits = 0
@@ -113,7 +160,13 @@ private actor FakeGateway: HermesGatewayTransport {
     func models(sessionID: String) async throws -> Data { Data("{\"providers\":[]}".utf8) }
     func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { Data() }
     func compress(sessionID: String) async throws -> Data { Data() }
-    func submit(sessionID: String, text: String) async throws -> Data { submits += 1; return Data() }
+    private var contexts = 0
+    private var manualSubmits = 0
+    private var contextFailure = false
+    func failManualContext() { contextFailure = true }
+    func contextCount() -> Int { contexts }
+    func manualContext(sessionID: String) async throws { if contextFailure { throw HermesGatewayError.protocolFailure }; contexts += 1 }
+    func submit(sessionID: String, text: String) async throws -> Data { XCTAssertEqual(contexts, manualSubmits + 1); manualSubmits += 1; submits += 1; return Data() }
     func submitBatch(sessionID: String, text: String, images: [HermesEvidenceAttachment], transmissionAllowed: @escaping @Sendable () async -> Bool) async throws { guard await transmissionAllowed() else { throw HermesGatewayError.cancelled }; submits += 1; return }
     func cancel(sessionID: String) async throws -> Data { cancels += 1; return Data() }
     func stop() async {}

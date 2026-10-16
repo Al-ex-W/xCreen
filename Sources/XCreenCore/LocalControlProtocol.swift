@@ -9,7 +9,7 @@ public enum LocalControlProtocol {
 }
 
 public enum LocalControlCommandName: String, Codable, Sendable {
-    case status, integrity, visibility, connect, disconnect, reconnect, models, model, settings, autodetect, ask, cancel, history, images, panel, quit
+    case status, integrity, visibility, connect, disconnect, reconnect, models, model, settings, autodetect, ask, cancel, history, batches, verify, images, panel, quit
 }
 
 public struct LocalControlCommand: Codable, Sendable {

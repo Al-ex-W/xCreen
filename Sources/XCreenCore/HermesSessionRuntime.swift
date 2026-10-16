@@ -32,7 +32,7 @@ public final class UserDefaultsHermesSessionRecordStore: HermesSessionRecordStor
 }
 
 private enum TurnKind { case manual, automatic }
-private struct QueuedTurn { let id: UUID; let kind: TurnKind; let text: String; let images: [HermesEvidenceAttachment]; let continuation: CheckedContinuation<String, Error>; let integrityEpoch: UInt64 }
+private struct QueuedTurn { let id: UUID; let kind: TurnKind; let text: String; let images: [HermesEvidenceAttachment]; let continuation: CheckedContinuation<String, Error>; let integrityEpoch: UInt64; let phaseChanged: (@Sendable (EvidenceStore.BatchState) async throws -> Void)?; let binding: BatchBinding?; let prepared: (@Sendable (String) async throws -> Void)?; let receiptChanged: (@Sendable (BatchReceipt) async throws -> Void)? }
 
 /// Actor-owned turn queue for the dedicated xCreen session. SharedSessionController
 /// serializes lifecycle transactions across awaits. Admission is not completion:
@@ -46,7 +46,10 @@ public actor HermesSessionRuntime {
     private var cancelledManual: Set<UUID> = []
     private var currentCancelled = false
     private var currentSubmitting = false
+    private var awaitingAdmission = false
+    private var delayedTerminal: HermesGatewayEvent?
     private var currentOutput = ""
+    private var reconcilingTurn: UUID?
     private var connectionGeneration: UInt64 = 0
     private var connected = false
     private var contextTokens = 0; private var contextLimit = 500_000; private var integrity = true; private var integrityEpoch: UInt64 = 0
@@ -84,7 +87,7 @@ public actor HermesSessionRuntime {
         if let connectionToken, connectionToken != connectionGeneration { throw HermesGatewayError.unavailable }
         return try await enqueue(kind: .manual, text: text, images: [], id: turnID)
     }
-    public func submitAutomatic(manifest: String, images: [HermesEvidenceAttachment]) async throws { guard !integrity else { throw HermesGatewayError.cancelled }; guard connected else { throw HermesGatewayError.unavailable }; try validate(text: manifest); _ = try await enqueue(kind: .automatic, text: manifest, images: images, id: UUID()) }
+    public func submitAutomatic(manifest: String, images: [HermesEvidenceAttachment], binding: BatchBinding? = nil, prepared: (@Sendable (String) async throws -> Void)? = nil, receiptChanged: (@Sendable (BatchReceipt) async throws -> Void)? = nil, phaseChanged: (@Sendable (EvidenceStore.BatchState) async throws -> Void)? = nil) async throws { guard !integrity else { throw HermesGatewayError.cancelled }; guard connected else { throw HermesGatewayError.unavailable }; try validate(text: manifest); _ = try await enqueue(kind: .automatic, text: manifest, images: images, id: UUID(), phaseChanged: phaseChanged, binding: binding, prepared: prepared, receiptChanged: receiptChanged) }
     public func switchModel(model: String, provider: String) async throws { try await waitForIdle(); guard let id = session?.runtimeSessionID else { throw HermesGatewayError.unavailable }; _ = try await gateway.switchModel(sessionID: id, model: model, provider: provider) }
     public func cancel() async throws {
         let target = current?.kind == .manual ? current?.id : manual.first?.id
@@ -106,9 +109,9 @@ public actor HermesSessionRuntime {
     public func currentSession() -> HermesSessionRecord? { session }
     public func connectionToken() -> UInt64 { connectionGeneration }
 
-    private func enqueue(kind: TurnKind, text: String, images: [HermesEvidenceAttachment], id: UUID) async throws -> String {
+    private func enqueue(kind: TurnKind, text: String, images: [HermesEvidenceAttachment], id: UUID, phaseChanged: (@Sendable (EvidenceStore.BatchState) async throws -> Void)? = nil, binding: BatchBinding? = nil, prepared: (@Sendable (String) async throws -> Void)? = nil, receiptChanged: (@Sendable (BatchReceipt) async throws -> Void)? = nil) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
-            let turn = QueuedTurn(id: id, kind: kind, text: text, images: images, continuation: continuation, integrityEpoch: integrityEpoch)
+            let turn = QueuedTurn(id: id, kind: kind, text: text, images: images, continuation: continuation, integrityEpoch: integrityEpoch, phaseChanged: phaseChanged, binding: binding, prepared: prepared, receiptChanged: receiptChanged)
             if kind == .manual { manual.append(turn) } else { automatic.append(turn) }; drainIfNeeded()
         }
     }
@@ -117,13 +120,36 @@ public actor HermesSessionRuntime {
         defer { draining = false; if current == nil { drainIfNeeded() } }
         guard connected, let id = session?.runtimeSessionID else { failQueues(HermesGatewayError.unavailable); return }
         let next: QueuedTurn? = !manual.isEmpty ? manual.removeFirst() : (!automatic.isEmpty ? automatic.removeFirst() : nil)
-        guard let next else { return }; current = next; currentCancelled = false; currentSubmitting = false; currentOutput = ""
+        guard let next else { return }; current = next; currentCancelled = false; currentSubmitting = false; awaitingAdmission = false; delayedTerminal = nil; currentOutput = ""
         do {
             try await compactIfNeeded(incomingTokens: next.text.utf8.count / 3 + next.images.count * 1_000)
             guard current?.id == next.id, !currentCancelled else { throw HermesGatewayError.cancelled }
-            currentSubmitting = true
-            if next.kind == .automatic { guard !integrity, next.integrityEpoch == integrityEpoch else { throw HermesGatewayError.cancelled }; try await gateway.submitBatch(sessionID: id, text: next.text, images: next.images, transmissionAllowed: { [weak self] in await self?.automaticTransmissionAllowed(turnID: next.id, epoch: next.integrityEpoch) ?? false }) }
-            else { _ = try await gateway.submit(sessionID: id, text: next.text) }
+            currentSubmitting = next.kind == .automatic
+            awaitingAdmission = next.kind == .automatic && next.phaseChanged != nil
+            if next.kind == .automatic {
+                guard !integrity, next.integrityEpoch == integrityEpoch else { throw HermesGatewayError.cancelled }
+                try await next.phaseChanged?(.submitting)
+                if let binding = next.binding {
+                    try await next.prepared?(id) // persist identity before any host-side preparation
+                    guard automaticTransmissionAllowed(turnID: next.id, epoch: next.integrityEpoch) else { throw HermesGatewayError.cancelled }
+                    let data = try await gateway.prepareBatch(sessionID: id, batchID: binding.batchID, sourceIDs: binding.sourceIDs)
+                    guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any], reply["prepared"] as? Bool == true,
+                          reply["batch_id"] as? String == binding.batchID, reply["session_id"] as? String == id,
+                          (reply["source_ids"] as? [String])?.sorted() == binding.sourceIDs.sorted() else { throw HermesGatewayError.protocolFailure }
+                }
+                guard automaticTransmissionAllowed(turnID: next.id, epoch: next.integrityEpoch) else { throw HermesGatewayError.cancelled }
+                try await gateway.submitBatch(sessionID: id, text: next.text, images: next.images, transmissionAllowed: { [weak self] in await self?.automaticTransmissionAllowed(turnID: next.id, epoch: next.integrityEpoch) ?? false })
+                try await next.phaseChanged?(.admitted)
+            }
+            else {
+                try await gateway.manualContext(sessionID: id)
+                guard current?.id == next.id, !currentCancelled, connected, session?.runtimeSessionID == id else { throw HermesGatewayError.cancelled }
+                currentSubmitting = true
+                _ = try await gateway.submit(sessionID: id, text: next.text)
+            }
+            guard current?.id == next.id else { return }
+            awaitingAdmission = false
+            if let event = delayedTerminal { delayedTerminal = nil; receive(event, generation: connectionGeneration) }
             // Completion is intentionally deferred to a terminal event.
         } catch { if current?.id == next.id { finishCurrent(error) } }
     }
@@ -137,6 +163,7 @@ public actor HermesSessionRuntime {
     }
     private func receive(_ event: HermesGatewayEvent, generation: UInt64) {
         guard generation == connectionGeneration else { return }
+        if awaitingAdmission, current?.phaseChanged != nil, ["message.complete", "run.completed", "turn.completed", "message.failed", "run.failed", "turn.failed", "error", "message.cancelled", "run.cancelled", "turn.cancelled", "session.interrupted"].contains(event.type) { delayedTerminal = event; return }
         switch event.type {
         case "message.delta", "message.interim":
             if let object = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any], let payload = object["payload"] as? [String: Any] { currentOutput += payload["text"] as? String ?? "" }
@@ -144,7 +171,20 @@ public actor HermesSessionRuntime {
             if let object = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any], let payload = object["payload"] as? [String: Any], let usage = payload["usage"] as? [String: Any] { updateContextUsage(tokens: usage["context_used"] as? Int ?? 0, limit: usage["context_max"] as? Int) }
         case "message.complete", "run.completed", "turn.completed":
             if let object = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any], let payload = object["payload"] as? [String: Any], let text = payload["text"] as? String, !text.isEmpty { currentOutput = text }
-            if currentCancelled || (current?.kind == .automatic && (integrity || current?.integrityEpoch != integrityEpoch)) { finishCurrent(HermesGatewayError.cancelled) } else { finishCurrent(nil) }
+            if currentCancelled || (current?.kind == .automatic && (integrity || current?.integrityEpoch != integrityEpoch)) { finishCurrent(HermesGatewayError.cancelled) }
+            else if let turn = current, let binding = turn.binding, let sessionID = session?.runtimeSessionID {
+                guard reconcilingTurn != turn.id else { return }
+                reconcilingTurn = turn.id
+                Task {
+                    do {
+                        let receipt = try await self.readReceipt(binding: binding, sessionID: sessionID)
+                        guard self.current?.id == turn.id else { return }
+                        try await turn.receiptChanged?(receipt)
+                        guard self.current?.id == turn.id else { return }
+                        self.finishCurrent(receipt.completesProcessing ? nil : HermesGatewayError.remoteFailure("batch processing receipt missing or uncertain"))
+                    } catch { if self.current?.id == turn.id { self.finishCurrent(error) } }
+                }
+            } else { finishCurrent(nil) }
         case "message.failed", "run.failed", "turn.failed", "error": finishCurrent(HermesGatewayError.remoteFailure("turn failed"))
         case "message.cancelled", "run.cancelled", "turn.cancelled", "session.interrupted": finishCurrent(HermesGatewayError.cancelled)
         default: break
@@ -152,12 +192,17 @@ public actor HermesSessionRuntime {
     }
     private func finishCurrent(_ error: Error?) {
         guard let turn = current else { return }; current = nil
+        reconcilingTurn = nil
         if let error { turn.continuation.resume(throwing: error) } else { turn.continuation.resume(returning: currentOutput) }
         drainIfNeeded()
     }
     private func gatewayDisconnected(generation: UInt64) { guard generation == connectionGeneration else { return }; connected = false; eventTask = nil; failQueues(HermesGatewayError.unavailable); finishCurrent(HermesGatewayError.unavailable) }
     private func failQueues(_ error: Error) { let all = manual + automatic; manual.removeAll(); automatic.removeAll(); all.forEach { $0.continuation.resume(throwing: error) } }
     private func waitForIdle() async throws { while current != nil || draining { try await Task.sleep(for: .milliseconds(10)) } }
+    public func readReceipt(binding: BatchBinding, sessionID: String) async throws -> BatchReceipt {
+        let data = try await gateway.batchReceipt(sessionID: sessionID, batchID: binding.batchID, sourceIDs: binding.sourceIDs)
+        return try BatchReceipt(data: data, batchID: binding.batchID, sourceIDs: binding.sourceIDs, sessionID: sessionID)
+    }
     private func compactIfNeeded(incomingTokens: Int) async throws { let cap = min(500_000, max(1, contextLimit - incomingTokens - 8_192)); guard contextTokens >= cap, let id = session?.runtimeSessionID else { return }; _ = try await gateway.compress(sessionID: id); contextTokens = 0 }
     private func validate(text: String) throws { guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.utf8.count <= 32_000 else { throw HermesGatewayError.protocolFailure } }
 }
