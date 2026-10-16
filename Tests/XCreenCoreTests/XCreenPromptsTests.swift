@@ -18,5 +18,9 @@ final class XCreenPromptsTests: XCTestCase {
         XCTAssertEqual(images.filter { text.contains("image_id=\($0.id) ") }.count, 30)
         XCTAssertLessThanOrEqual(text.utf8.count, 32_000)
         XCTAssertTrue(text.contains("nothing saved"))
+        XCTAssertTrue(text.contains("batch_id=batch-1"))
+        XCTAssertTrue(text.contains("entry_id"))
+        XCTAssertTrue(text.contains("not confirmed intent"))
+        XCTAssertTrue(text.contains("Never save raw OCR"))
     }
 }

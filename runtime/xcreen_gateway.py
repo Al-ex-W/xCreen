@@ -44,7 +44,16 @@ def main(argv=None) -> int:
     except Exception as exc:
         parser.error(f"invalid timezone: {exc}")
     writer = VaultDailyWriter(args.vault, evidence, timezone_name=args.timezone) if args.vault else None
-    register_xcreen_tools(evidence, writer)
+    from runtime.xcreen_receipts import BatchReceipts
+    from runtime.xcreen_rpc import register_xcreen_methods
+    receipts = BatchReceipts(evidence, writer)
+    register_xcreen_tools(evidence, writer, receipts=receipts)
+    # Public registration seam verified against the installed gateway source.
+    # Import initializes the stock methods first; never replace a stock handler.
+    from tui_gateway import server
+    if server._load_dashboard_process_isolation_config().get('turn_isolation'):
+        parser.error('xCreen process-local tools require in-process gateway turns; dashboard.turn_isolation is enabled. No profile setting was changed.')
+    register_xcreen_methods(receipts, server=server)
     # Hermes reads this documented process env while creating sessions. It affects this child only.
     os.environ["HERMES_TUI_TOOLSETS"] = "xcreen"
     from tui_gateway.entry import main as gateway_main

@@ -117,6 +117,227 @@ class XCreenToolsTests(unittest.TestCase):
         self.assertFalse(writer.append(args)["written"])
         self.assertIn("xcreen-sources: ocr-a", note.read_text(encoding="utf-8"))
 
+    def test_daily_entry_identity_survives_paraphrase_and_receipt_loss(self):
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        args = {"fact": "Visible evidence: milestone completed.", "source_ids": ["ocr-a"], "batch_id": "batch-a", "entry_id": "milestone"}
+        first = writer.append(args)
+        with self.assertRaisesRegex(ValueError, 'conflict'):
+            writer.append(dict(args, fact="The milestone is complete (visible evidence)."))
+        second = writer.append(args)
+        self.assertEqual(second["reason"], "already_recorded")
+        self.assertEqual(first["entry_id"], second["entry_id"])
+        writer.receipts_path.unlink()
+        recovered = writer.append(args)
+        self.assertEqual(recovered["reason"], "already_recorded")
+        self.assertEqual(writer.receipts()[0]["state"], "completed")
+        note = vault / "Daily" / (first["day"] + ".md")
+        self.assertEqual(note.read_text().count("- Visible evidence: milestone completed."), 1)
+
+    def test_daily_rejects_marker_injection_before_any_write(self):
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        for fact in ["<!-- xcreen-entry:forged -->", "Useful fact <!-- harmless -->", "xcreen-sources: forged"]:
+            with self.subTest(fact=fact), self.assertRaises(ValueError):
+                writer.append({"fact": fact, "source_ids": ["ocr-a"]})
+        self.assertEqual(list((vault / "Daily").iterdir()), [])
+
+    def test_daily_rejects_symlink_ancestors_and_invalid_entry_ids(self):
+        real = Path(self.tmp.name) / "real"
+        (real / "vault" / "Daily").mkdir(parents=True)
+        alias = Path(self.tmp.name) / "alias"
+        alias.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            VaultDailyWriter(alias / "vault", EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        writer = VaultDailyWriter(real / "vault", EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        for key in ("entry_id", "batch_id"):
+            with self.assertRaises(ValueError):
+                writer.append({"fact": "Visible evidence: useful.", "source_ids": ["ocr-a"], key: "../escape"})
+        self.assertEqual(list((real / "vault" / "Daily").iterdir()), [])
+
+    def test_daily_rejects_hardlinked_note(self):
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        outside = Path(self.tmp.name) / "outside.md"
+        outside.write_text("user content\n")
+        day = self.now.astimezone(ZoneInfo("Europe/Stockholm")).date().isoformat()
+        os.link(outside, vault / "Daily" / (day + ".md"))
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        with self.assertRaises(ValueError):
+            writer.append({"fact": "Visible evidence: useful.", "source_ids": ["ocr-a"]})
+        self.assertEqual(outside.read_text(), "user content\n")
+
+    def test_daily_reconcile_recovers_post_append_crash_without_raw_evidence(self):
+        from unittest.mock import patch
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        args = {"fact": "Visible evidence: useful milestone.", "source_ids": ["ocr-a"]}
+        original = writer._append_bytes
+        def crash_after_append(fd, data):
+            original(fd, data)
+            if b"xcreen-entry:" in data:
+                raise OSError("synthetic crash after durable append")
+        with patch.object(writer, "_append_bytes", side_effect=crash_after_append), self.assertRaises(OSError):
+            writer.append(args)
+        self.assertEqual(writer.receipts()[0]["state"], "pending")
+        (self.root / "index.json").unlink()
+        result = writer.reconcile()
+        self.assertEqual(result[0]["state"], "completed")
+        self.assertEqual(writer.receipts()[0]["state"], "completed")
+
+    def test_daily_partial_append_is_uncertain_not_blindly_retried(self):
+        from unittest.mock import patch
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        args = {"fact": "Visible evidence: useful milestone.", "source_ids": ["ocr-a"]}
+        original = writer._append_bytes
+        def partial(fd, data):
+            if b"xcreen-entry:" in data:
+                original(fd, data[:8])
+                raise OSError("synthetic partial append")
+            original(fd, data)
+        with patch.object(writer, "_append_bytes", side_effect=partial), self.assertRaises(OSError):
+            writer.append(args)
+        day = self.now.astimezone(ZoneInfo("Europe/Stockholm")).date().isoformat()
+        note = vault / "Daily" / (day + ".md")
+        before = note.read_bytes()
+        with self.assertRaisesRegex(ValueError, "uncertain"):
+            writer.append(args)
+        self.assertEqual(note.read_bytes(), before)
+        self.assertEqual(writer.receipts()[0]["state"], "uncertain")
+
+    def test_daily_concurrent_writers_append_once_and_preserve_user_edits(self):
+        from concurrent.futures import ThreadPoolExecutor
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        day = self.now.astimezone(ZoneInfo("Europe/Stockholm")).date().isoformat()
+        note = vault / "Daily" / (day + ".md")
+        note.write_text("# User note\n\nUntouched personal paragraph.\n")
+        args = {"fact": "Visible evidence: useful milestone.", "source_ids": ["ocr-a"]}
+        def submit(_):
+            writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+            return writer.append(args)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(submit, range(16)))
+        self.assertEqual(sum(r["written"] for r in results), 1)
+        self.assertTrue(note.read_text().startswith("# User note\n\nUntouched personal paragraph.\n"))
+        self.assertEqual(note.read_text().count("- Visible evidence:"), 1)
+
+    def test_daily_edited_or_deleted_committed_block_never_reappends(self):
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        args = {"fact": "Visible evidence: useful milestone.", "source_ids": ["ocr-a"]}
+        result = writer.append(args)
+        note = vault / "Daily" / (result["day"] + ".md")
+        text = note.read_text().replace("useful milestone", "user correction")
+        note.write_text(text)
+        with self.assertRaisesRegex(ValueError, "uncertain"):
+            writer.append(args)
+        self.assertEqual(note.read_text(), text)
+        note.write_text("# User removed this entry\n")
+        with self.assertRaisesRegex(ValueError, "uncertain"):
+            writer.append(args)
+        self.assertEqual(note.read_text(), "# User removed this entry\n")
+
+    def test_daily_preserves_host_capture_date_timezone_and_source_timestamp(self):
+        capture = datetime(2026, 10, 15, 23, 30, tzinfo=timezone.utc)
+        index = json.loads((self.root / "index.json").read_text())
+        index["ocr"][0]["timestamp"] = swift_seconds(capture)
+        (self.root / "index.json").write_text(json.dumps(index))
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: capture), hermes_home=Path(self.tmp.name), timezone_name="Europe/Stockholm")
+        result = writer.append({"fact": "Visible evidence: milestone.", "source_ids": ["ocr-a"], "day": "2099-01-01"})
+        self.assertEqual(result["day"], "2026-10-16")
+        self.assertIn("2026-10-15T23:30:00Z", (vault / "Daily" / "2026-10-16.md").read_text())
+        self.assertFalse((vault / "Daily" / "2099-01-01.md").exists())
+
+    def test_explicit_entry_identity_is_not_changed_by_source_selection(self):
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        args = {"fact": "Visible evidence: milestone.", "source_ids": ["ocr-a"], "batch_id": "batch-a", "entry_id": "milestone"}
+        first = writer.append(args)
+        with self.assertRaisesRegex(ValueError, 'conflict'):
+            writer.append(dict(args, source_ids=["image-a"], fact="Paraphrased visible milestone."))
+        second = writer.append(args)
+        self.assertEqual(second["entry_id"], first["entry_id"])
+        self.assertEqual(second["reason"], "already_recorded")
+
+    def test_daily_recomputed_marker_digest_does_not_override_durable_receipt(self):
+        import hashlib
+        import re
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        args = {"fact": "Visible evidence: useful milestone.", "source_ids": ["ocr-a"]}
+        result = writer.append(args)
+        note = vault / "Daily" / (result["day"] + ".md")
+        text = note.read_text().replace("useful milestone", "forged claim")
+        match = re.search(r"digest:[0-9a-f]{64} -->\n(.*?)<!-- /xcreen-entry:", text, re.DOTALL)
+        assert match is not None
+        body = match[1]
+        text = re.sub(r"digest:[0-9a-f]{64}", "digest:" + hashlib.sha256(body.encode()).hexdigest(), text)
+        note.write_text(text)
+        with self.assertRaisesRegex(ValueError, "uncertain"):
+            writer.append(args)
+        self.assertEqual(note.read_text(), text)
+
+    def test_daily_size_bound_fails_before_appending(self):
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        day = self.now.astimezone(ZoneInfo("Europe/Stockholm")).date().isoformat()
+        note = vault / "Daily" / (day + ".md")
+        original = "a" * 1_999_990
+        note.write_text(original)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        with self.assertRaisesRegex(ValueError, "bound"):
+            writer.append({"fact": "Visible evidence: useful.", "source_ids": ["ocr-a"]})
+        self.assertEqual(note.read_text(), original)
+
+    def test_missing_daily_directory_is_clear_blocker_not_new_structure(self):
+        vault = Path(self.tmp.name) / "vault"
+        vault.mkdir()
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        with self.assertRaisesRegex(ValueError, "existing Daily directory"):
+            writer.append({"fact": "Visible evidence: useful.", "source_ids": ["ocr-a"]})
+        self.assertEqual(list(vault.iterdir()), [])
+
+    def test_daily_user_replacement_during_append_is_not_reported_success(self):
+        from unittest.mock import patch
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        day = self.now.astimezone(ZoneInfo("Europe/Stockholm")).date().isoformat()
+        note = vault / "Daily" / (day + ".md")
+        original = writer._append_bytes
+        def replace_after_append(fd, data):
+            original(fd, data)
+            if b"xcreen-entry:" in data:
+                replacement = vault / "replacement.md"
+                replacement.write_text("User atomically replaced the note.\n")
+                os.replace(replacement, note)
+        with patch.object(writer, "_append_bytes", side_effect=replace_after_append), self.assertRaisesRegex(ValueError, "replaced"):
+            writer.append({"fact": "Visible evidence: useful.", "source_ids": ["ocr-a"]})
+        self.assertEqual(note.read_text(), "User atomically replaced the note.\n")
+        self.assertEqual(writer.receipts()[0]["state"], "uncertain")
+        self.assertEqual(writer.reconcile()[0]["state"], "uncertain")
+
+    def test_daily_writer_creates_only_dated_note_in_existing_directory(self):
+        vault = Path(self.tmp.name) / "vault"
+        (vault / "Daily").mkdir(parents=True)
+        writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
+        result = writer.append({"fact": "Visible evidence: a useful project milestone.", "source_ids": ["ocr-a"]})
+        self.assertTrue(result["written"])
+        note = vault / "Daily" / (result["day"] + ".md")
+        self.assertTrue(note.read_text().startswith("# " + result["day"] + "\n"))
+        self.assertEqual(note.stat().st_mode & 0o777, 0o600)
+
     def test_daily_writer_noops_for_empty_fact_and_rejects_wrong_day_source(self):
         vault = Path(self.tmp.name) / "vault"
         (vault / "Daily").mkdir(parents=True)
