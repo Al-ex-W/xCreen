@@ -15,7 +15,7 @@ cp "$BIN/xCreen" "$APP/Contents/MacOS/xCreen"
 cp resources/Info.plist "$APP/Contents/Info.plist"
 cp LICENSE NOTICE "$APP/Contents/Resources/"
 mkdir -p "$APP/Contents/Resources/runtime"
-cp runtime/__init__.py runtime/xcreen_tools.py runtime/xcreen_gateway.py "$APP/Contents/Resources/runtime/"
+cp runtime/__init__.py runtime/xcreen_tools.py runtime/xcreen_gateway.py runtime/xcreen_receipts.py runtime/xcreen_rpc.py runtime/migrate_receipts.py "$APP/Contents/Resources/runtime/"
 
 # SwiftPM does not run Xcode's App Intents metadata extractor for a manually
 # assembled app bundle. When the installed Xcode provides it, generate the

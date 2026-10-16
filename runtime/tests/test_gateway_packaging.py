@@ -16,18 +16,21 @@ class GatewayPackagingTests(unittest.TestCase):
             resources = work / "Resources"
             runtime = resources / "runtime"
             runtime.mkdir(parents=True)
-            for name in ("__init__.py", "xcreen_gateway.py"):
+            for name in ("__init__.py", "xcreen_gateway.py", "xcreen_receipts.py", "xcreen_rpc.py"):
                 shutil.copyfile(root / "runtime" / name, runtime / name)
             (runtime / "xcreen_tools.py").write_text(
                 "import sys\nassert sys.dont_write_bytecode\n"
                 "class EvidenceReader:\n def __init__(self, root): pass\n"
                 "class VaultDailyWriter: pass\n"
-                "def register_xcreen_tools(*args): pass\n"
+                "def _safe_id(value): return value\n"
+                "def _utc(value): return value\n"
+                "def register_xcreen_tools(*args, **kwargs): pass\n"
             )
             hermes = work / "hermes"
             (hermes / "tui_gateway").mkdir(parents=True)
             (hermes / "hermes_bootstrap.py").write_text("import sys\nassert sys.dont_write_bytecode\n")
             (hermes / "tui_gateway" / "__init__.py").write_text("")
+            (hermes / "tui_gateway" / "server.py").write_text("def register_method(name, handler): pass\ndef _load_dashboard_process_isolation_config(): return {'turn_isolation':False}\n")
             (hermes / "tui_gateway" / "entry.py").write_text("def main(): pass\n")
             env = dict(os.environ, HERMES_HOME=str(hermes))
             env.pop("PYTHONDONTWRITEBYTECODE", None)
