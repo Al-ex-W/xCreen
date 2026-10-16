@@ -19,6 +19,8 @@ import XCreenCore
     }
     @Published var query = ""
     @Published var submissionMessage = ""
+    @Published var batchMetadata = ""
+    @Published var batchCursor = ""
     @Published var captureStatus = "Capture safety not yet verified"
     private var captureSafe = false
     private func captureSafetyChanged(_ safe: Bool) {
@@ -83,7 +85,14 @@ import XCreenCore
             self.submissionMessage = "Hermes connected."
             self.log.write(.gateway, "connected session=\(identity.storedSessionID) runtime=\(identity.runtimeSessionID)")
             self.log.updateStatus(["hermes": "connected", "session": identity.storedSessionID])
-            Task { await self.submitPendingBatches() }
+            guard !self.controller.readOnlyConnection else { return }
+            Task {
+                if let store = self.evidenceStore {
+                    do { _ = try await self.controller.verifyBatches(launch: self.frozenLaunch(), store: store) }
+                    catch { self.submissionMessage = "Batch receipt verification unavailable; interrupted work remains fenced." }
+                }
+                await self.submitPendingBatches()
+            }
         }
         log.write(.app, "started pid=\(ProcessInfo.processInfo.processIdentifier)")
         log.updateStatus(["app": "running", "hermes": "connecting", "integrity": integrity ? "on" : "off", "capture": "paused"])
@@ -239,14 +248,23 @@ import XCreenCore
             let images = batch.images.map { HermesEvidenceAttachment(id: $0.id, timestamp: $0.timestamp, fileURL: $0.fileURL) }
             do {
                 log.write(.batch, "sending id=\(batch.id) images=\(images.count)")
-                try await sessionRuntime.submitAutomatic(manifest: manifest, images: images)
-                try await evidenceStore?.markBatch(id: batch.id, status: "sent")
-                log.write(.batch, "done id=\(batch.id)")
+                guard let evidenceStore else { throw EvidenceStoreError.invalidInput }
+                // Stable ID/evidence is already durable before this queued turn exists.
+                try await evidenceStore.savePendingBatch(batch)
+                let binding = BatchBinding(batchID: batch.id, sourceIDs: batch.images.map(\.id) + batch.ocr.map(\.id))
+                try await sessionRuntime.submitAutomatic(manifest: manifest, images: images, binding: binding, prepared: { sessionID in
+                    try await evidenceStore.bindBatch(id: batch.id, sessionID: sessionID)
+                }, receiptChanged: { receipt in
+                    try await evidenceStore.reconcile(receipt)
+                }, phaseChanged: { state in
+                    try await evidenceStore.transitionBatch(id: batch.id, to: state)
+                })
+                log.write(.batch, "verified processing receipt id=\(batch.id)")
             } catch {
-                // Keep the durable marker eligible for a later reconnect; no inference was claimed.
-                try? await evidenceStore?.markBatch(id: batch.id, status: "pending")
-                log.write(.error, "batch id=\(batch.id) kept pending: \(error)")
-                submissionMessage = "Automatic evidence batch was retained locally; Hermes did not accept it."
+                // Only work that never crossed the send boundary remains retryable.
+                try? await evidenceStore?.recordBatchFailure(id: batch.id, cancelled: (error as? HermesGatewayError) == .cancelled)
+                log.write(.error, "batch id=\(batch.id) interrupted; inspect durable batch state")
+                submissionMessage = "Automatic batch interrupted. Pending work may retry; ambiguous/admitted work requires receipt verification."
             }
         }
     }
@@ -282,9 +300,21 @@ import XCreenCore
         switch command.name {
         case .status: break
         case .history:
-            let data = try await controller.history(launch: frozenLaunch())
-            guard data.count <= 500_000 else { throw LocalControlError.unavailable("history exceeds local response limit") }
+            let data = try await controller.historyPage(launch: frozenLaunch(), cursor: command.value)
             return .ok(snapshot(), reply: String(data: data, encoding: .utf8))
+        case .batches:
+            guard let evidenceStore else { throw LocalControlError.unavailable("evidence store unavailable") }
+            let rows = await evidenceStore.batchPage(after: command.value ?? "", limit: 20)
+            batchMetadata = rows.map { "\($0.id) · \($0.state.rawValue) · attempts \($0.attempts) · receipt \($0.receipt?.status ?? "missing") · verified \($0.receipt?.verified ?? false) · effects \($0.receipt?.effectCount ?? 0)" }.joined(separator: "\n")
+            if rows.isEmpty { batchMetadata = "No more retained batches." }
+            batchCursor = rows.last?.id ?? ""
+            let data = try JSONEncoder().encode(rows)
+            return .ok(snapshot(), reply: String(data: data, encoding: .utf8))
+        case .verify:
+            guard let evidenceStore else { throw LocalControlError.unavailable("evidence store unavailable") }
+            let count = try await controller.verifyBatches(launch: frozenLaunch(), store: evidenceStore)
+            batchMetadata = "Verified \(count) retained batch receipts. No inference or note writes."
+            return .ok(snapshot(), reply: batchMetadata)
         case .integrity:
             if command.value == nil { break }
             guard let value = command.value, ["on", "off"].contains(value) else { throw LocalControlError.invalidRequest("integrity value must be on or off") }
@@ -467,6 +497,16 @@ struct Panel: View {
 
             if !state.appendix.isEmpty {
                 EvidenceAppendix(images: state.appendix)
+            }
+
+            DisclosureGroup("Durable batches") {
+                HStack {
+                    Button("Refresh") { state.runControl(["command": "batches"]) }
+                    Button("Verify receipts") { state.runControl(["command": "verify"]) }
+                    Button("Next page") { state.runControl(["command": "batches", "value": state.batchCursor]) }.disabled(state.batchCursor.isEmpty)
+                }
+                ScrollView { Text(state.batchMetadata).font(.caption).textSelection(.enabled) }.frame(maxHeight: 100)
+                Text("Transport completion is not verified processing. Uncertain batches are never retried automatically.").font(.caption).foregroundStyle(.secondary)
             }
 
             DisclosureGroup("Local settings", isExpanded: $state.showSettings) {

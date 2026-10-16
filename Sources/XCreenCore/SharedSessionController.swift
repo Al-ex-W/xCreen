@@ -10,6 +10,7 @@ import Foundation
     private var observer: Task<Void, Never>?
     private var configuredLaunch: HermesGatewayLaunch?
     public private(set) var connected = false
+    public private(set) var readOnlyConnection = false
     public private(set) var generation: UInt64 = 0
     public var connectionChanged: (@MainActor (Bool) -> Void)?
     public var eventReceived: (@MainActor (HermesGatewayEvent) -> Void)?
@@ -111,6 +112,35 @@ import Foundation
             try await self.runtime.switchModel(model: model, provider: provider)
             guard self.connected, self.generation == token else { throw HermesGatewayError.unavailable }
             apply()
+        }.value
+    }
+    public func verifyBatches(launch: HermesGatewayLaunch, store: EvidenceStore) async throws -> Int {
+        try await ordered {
+            self.readOnlyConnection = true
+            defer { self.readOnlyConnection = false }
+            try await self.connectLocked(launch: launch)
+            var verified = 0
+            var failure: Error?
+            for binding in await store.batchBindings() {
+                guard let sessionID = binding.sessionID else { continue }
+                do {
+                    let receipt = try await self.runtime.readReceipt(binding: binding, sessionID: sessionID)
+                    try await store.reconcile(receipt)
+                    if receipt.completesProcessing { verified += 1 }
+                } catch {
+                    try await store.invalidateReceipt(id: binding.batchID)
+                    failure = error
+                }
+            }
+            if let failure { throw failure }
+            return verified
+        }.value
+    }
+    public func historyPage(launch: HermesGatewayLaunch, cursor: String? = nil) async throws -> Data {
+        try await ordered {
+            try await self.connectLocked(launch: launch)
+            guard let identity = await self.runtime.currentSession() else { throw HermesGatewayError.unavailable }
+            return try await self.gateway.historyPage(sessionID: identity.runtimeSessionID, cursor: cursor)
         }.value
     }
     public func history(launch: HermesGatewayLaunch) async throws -> Data {

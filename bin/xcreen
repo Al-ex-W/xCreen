@@ -19,7 +19,10 @@ HELP = '''usage: xcreen [--json] COMMAND
   settings [show] | settings set python|root|vault VALUE
   settings autodetect | autodetect
   ask QUESTION [--wait-ms 0..30000]  explicit submission to the existing xCreen session
-  history | cancel
+  history [--after CURSOR]        bounded sanitized history pages
+  batches [--after BATCH_ID]      up to 20 durable batch metadata records
+  verify                         read-only receipt reconciliation; no inference/note writes
+  cancel
   images [list|open ID]           reply attachment metadata/open through the app
   panel [show|hide]
   start | stop | restart | quit
@@ -38,8 +41,13 @@ def parse_command(args):
             return {'command': 'visibility', 'value': rest[1]}
     if name == 'connection' and len(rest) == 1:
         name, rest = rest[0], []
-    if name in ('status', 'connect', 'disconnect', 'reconnect', 'cancel', 'history', 'quit', 'autodetect') and not rest:
+    if name in ('status', 'connect', 'disconnect', 'reconnect', 'cancel', 'history', 'verify', 'quit', 'autodetect') and not rest:
         return {'command': name}
+    if name in ('history', 'batches'):
+        if not rest:
+            return {'command': name}
+        if len(rest) == 2 and rest[0] == '--after' and 0 < len(rest[1].encode()) <= 4096:
+            return {'command': name, 'value': rest[1]}
     if name == 'integrity' and (not rest or rest == ['get']):
         return {'command': name}
     if name == 'integrity' and rest in (['on'], ['off']):

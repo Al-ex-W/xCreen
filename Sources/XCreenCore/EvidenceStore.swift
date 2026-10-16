@@ -43,7 +43,13 @@ public struct CaptureCheckpoint: Codable, Sendable {
 }
 
 public actor EvidenceStore {
-    private struct BatchRecord: Codable { var batch: CaptureBatch; var status: String }
+    private struct BatchRecord: Codable { var batch: CaptureBatch; var status: String; var attempts: Int? = nil; var sourceIDs: [String]? = nil; var sessionID: String? = nil; var receipt: BatchReceipt? = nil }
+    public enum BatchState: String, Codable, Sendable { case pending, submitting, admitted, completed, uncertain, deadletter }
+    public struct BatchSummary: Codable, Sendable {
+        public let id: String; public let state: BatchState; public let attempts: Int
+        public let startedAt: Date; public let completedAt: Date
+        public let receipt: BatchReceipt?
+    }
     private struct Index: Codable { var images: [EvidenceImage] = []; var ocr: [OCREvidence] = []; var batches: [BatchRecord] = [] }
     private static let retention: TimeInterval = 7 * 24 * 60 * 60
     /// Index and checkpoint reads are deliberately bounded: these are local
@@ -82,6 +88,13 @@ public actor EvidenceStore {
             try Self.atomicWrite(try JSONEncoder().encode(index), to: indexURL)
         }
         try Self.validate(&index, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory)
+        // Neither a lost submit reply nor an interrupted admitted run proves absence
+        // of effects. Legacy sent/failed were not processing receipts either.
+        for i in index.batches.indices {
+            let status = index.batches[i].status
+            let verified = index.batches[i].receipt?.completesProcessing == true
+            if !["pending", "completed", "deadletter", "uncertain"].contains(status) || (status == "completed" && !verified) { index.batches[i].status = "uncertain" }
+        }
         try Self.cleanup(&index, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory, checkpointURL: checkpointURL, now: Date())
         try Self.atomicWrite(try JSONEncoder().encode(index), to: indexURL)
     }
@@ -125,7 +138,10 @@ public actor EvidenceStore {
 
     public func savePendingBatch(_ batch: CaptureBatch) throws {
         try Self.validate(batch: batch, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory)
-        index.batches.removeAll { $0.batch.id == batch.id }
+        if let existing = index.batches.first(where: { $0.batch.id == batch.id }) {
+            guard existing.batch == batch else { throw EvidenceStoreError.invalidInput }
+            return // idempotent finalization must never reset admitted work.
+        }
         index.batches.append(BatchRecord(batch: batch, status: "pending")); try persist()
     }
 
@@ -183,9 +199,76 @@ public actor EvidenceStore {
     }
 
     public func pendingBatches() throws -> [CaptureBatch] { index.batches.filter { $0.status == "pending" && !Self.expired($0.batch.completedAt, now: Date()) }.map(\.batch).sorted { $0.startedAt < $1.startedAt } }
+    public func batchPage(after: String = "", limit: Int = 20) -> [BatchSummary] {
+        var rows = index.batches.filter { $0.batch.id > after }.sorted { $0.batch.id < $1.batch.id }.prefix(max(1, min(limit, 20))).map {
+            BatchSummary(id: $0.batch.id, state: BatchState(rawValue: $0.status) ?? .uncertain, attempts: $0.attempts ?? 0, startedAt: $0.batch.startedAt, completedAt: $0.batch.completedAt, receipt: $0.receipt)
+        }
+        while rows.count > 1, (try? JSONEncoder().encode(rows).count) ?? Int.max > 24_000 { rows.removeLast() }
+        return rows
+    }
+    public func recordBatchFailure(id: String, cancelled: Bool = false) throws {
+        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
+        let old = index
+        switch index.batches[i].status {
+        case "pending":
+            if cancelled { return }
+            let attempts = (index.batches[i].attempts ?? 0) + 1
+            index.batches[i].attempts = attempts
+            if attempts >= 3 { index.batches[i].status = "deadletter" }
+        case "submitting", "admitted": index.batches[i].status = "uncertain"
+        default: return
+        }
+        do { try persist() } catch { index = old; throw error }
+    }
+    public func batchBindings() -> [BatchBinding] {
+        index.batches.filter { $0.status != "pending" && $0.status != "deadletter" }.map {
+            BatchBinding(batchID: $0.batch.id, sourceIDs: $0.sourceIDs ?? ($0.batch.images.map(\.id) + $0.batch.ocr.map(\.id)), sessionID: $0.sessionID)
+        }
+    }
+    public func bindBatch(id: String, sessionID: String) throws {
+        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }), index.batches[i].sessionID == nil || index.batches[i].sessionID == sessionID else { throw EvidenceStoreError.invalidInput }
+        let old = index
+        index.batches[i].sessionID = sessionID
+        index.batches[i].sourceIDs = (index.batches[i].batch.images.map(\.id) + index.batches[i].batch.ocr.map(\.id)).sorted()
+        do { try persist() } catch { index = old; throw error }
+    }
+    public func invalidateReceipt(id: String) throws {
+        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
+        let old = index
+        index.batches[i].status = "uncertain"; index.batches[i].receipt = nil
+        do { try persist() } catch { index = old; throw error }
+    }
+    public func reconcile(_ receipt: BatchReceipt) throws {
+        guard let i = index.batches.firstIndex(where: { $0.batch.id == receipt.batchID }),
+              index.batches[i].sessionID == receipt.sessionID,
+              (index.batches[i].sourceIDs ?? (index.batches[i].batch.images.map(\.id) + index.batches[i].batch.ocr.map(\.id))).sorted() == receipt.sourceIDs.sorted() else { throw EvidenceStoreError.invalidInput }
+        let old = index
+        index.batches[i].receipt = receipt
+        index.batches[i].status = receipt.completesProcessing ? "completed" : "uncertain"
+        do { try persist() } catch { index = old; throw error }
+    }
+    public func transitionBatch(id: String, to state: BatchState) throws {
+        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
+        let previous = BatchState(rawValue: index.batches[i].status) ?? .uncertain
+        let allowed: Bool
+        switch (previous, state) {
+        case (.pending, .submitting), (.submitting, .admitted), (.submitting, .uncertain), (.admitted, .uncertain): allowed = true
+        default: allowed = false
+        }
+        guard allowed else { throw EvidenceStoreError.invalidInput }
+        let old = index
+        if state == .submitting { index.batches[i].attempts = (index.batches[i].attempts ?? 0) + 1 }
+        index.batches[i].status = state.rawValue
+        do { try persist() } catch { index = old; throw error }
+    }
     public func markBatch(id: String, status: String) throws {
-        guard Self.validID(id), ["pending", "sent", "failed"].contains(status), let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
-        index.batches[i].status = status; try persist()
+        // Compatibility with older callers: sent is transport completion, not a
+        // verified vault result. No generic API may reset ambiguous work to pending.
+        if status == "sent" {
+            guard let i = index.batches.firstIndex(where: { $0.batch.id == id }), index.batches[i].status == "pending" else { throw EvidenceStoreError.invalidInput }
+            index.batches[i].status = "uncertain"; try persist(); return
+        }
+        guard status == "pending", let i = index.batches.firstIndex(where: { $0.batch.id == id }), index.batches[i].status == "pending" else { throw EvidenceStoreError.invalidInput }
     }
 
     public func cleanup(now: Date = Date()) throws {
@@ -204,11 +287,22 @@ public actor EvidenceStore {
             if try confined(url, in: ocrDirectory) { try removeIfPresent(url) }
         }
         index.ocr.removeAll { $0.timestamp < cutoff }
-        // A batch is a derivative: retaining a new batch that points at expired
-        // raw evidence would bypass the TTL, so remove it as a whole.
-        index.batches.removeAll { record in
-            record.batch.completedAt < cutoff || record.batch.images.contains { $0.timestamp < cutoff } || record.batch.ocr.contains { $0.timestamp < cutoff }
+        // Keep source IDs/receipts, not raw derivatives, beyond evidence expiry.
+        for i in index.batches.indices {
+            let batch = index.batches[i].batch
+            if batch.completedAt < cutoff || batch.images.contains(where: { $0.timestamp < cutoff }) || batch.ocr.contains(where: { $0.timestamp < cutoff }) {
+                if index.batches[i].sourceIDs == nil { index.batches[i].sourceIDs = (batch.images.map(\.id) + batch.ocr.map(\.id)).sorted() }
+                index.batches[i].batch = CaptureBatch(id: batch.id, images: [], startedAt: batch.startedAt, completedAt: batch.completedAt, ocr: [])
+                if index.batches[i].status == "pending" { index.batches[i].status = "deadletter" }
+            }
         }
+        let archiveCutoff = now.addingTimeInterval(-180 * 86_400)
+        index.batches.removeAll { $0.batch.completedAt < archiveCutoff }
+        var archived = index.batches.filter { $0.batch.completedAt < cutoff }.sorted { $0.batch.completedAt > $1.batch.completedAt }
+        if archived.count > 128 { archived = Array(archived.prefix(128)) }
+        while !archived.isEmpty, (try JSONEncoder().encode(archived)).count > 2_000_000 { archived.removeLast() }
+        let retained = Set(archived.map { $0.batch.id })
+        index.batches.removeAll { $0.batch.completedAt < cutoff && !retained.contains($0.batch.id) }
         if FileManager.default.fileExists(atPath: checkpointURL.path) {
             var checkpoint = try JSONDecoder().decode(CaptureCheckpoint.self, from: safeRead(checkpointURL, in: checkpointURL.deletingLastPathComponent(), maximumBytes: maximumCheckpointBytes))
             checkpoint.images.removeAll { $0.timestamp < cutoff }
