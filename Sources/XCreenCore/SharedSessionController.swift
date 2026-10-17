@@ -7,7 +7,7 @@ public struct XCreenModelPreference: Codable, Equatable, Sendable {
     public init(provider: String, model: String) { self.provider = provider; self.model = model }
     public var id: String { "\(provider)::\(model)" }
     /// Cheap, fast default for automatic five-minute batches.
-    public static let builtIn = XCreenModelPreference(provider: "openrouter", model: "anthropic/claude-haiku-5.5")
+    public static let builtIn = XCreenModelPreference(provider: "anthropic", model: "claude-haiku-5-5")
 }
 
 /// Shared native action owner. Lifecycle operations are FIFO transactions, including
@@ -170,8 +170,10 @@ public struct XCreenModelPreference: Codable, Equatable, Sendable {
             return inventory
         }
         guard routes.contains(where: { $0.provider == preference.provider && $0.model == preference.model }) else {
-            let leaf = preference.model.split(separator: "/").last.map(String.init) ?? preference.model
-            let alternatives = routes.filter { $0.model.hasSuffix(leaf) }.map { "\($0.provider) · \($0.model)" }
+            // Providers spell the same model differently (claude-haiku-5-5 vs anthropic/claude-haiku-5.5).
+            func leaf(_ model: String) -> String { (model.split(separator: "/").last.map(String.init) ?? model).replacingOccurrences(of: ".", with: "-") }
+            let wanted = leaf(preference.model)
+            let alternatives = routes.filter { leaf($0.model) == wanted }.map { "\($0.provider) · \($0.model)" }
             modelPreferenceStatus = "Unavailable: \(preference.provider) · \(preference.model) is not in Hermes's configured inventory; session model unchanged (no fallback)." + (alternatives.isEmpty ? "" : " Configured alternatives: \(alternatives.prefix(3).joined(separator: ", ")).")
             return inventory
         }

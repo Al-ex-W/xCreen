@@ -5,7 +5,7 @@ import XCTest
     func testDefaultModelAppliedOnConnectAndPickerPersistsOnResume() async throws {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         let gateway = ControlledGateway()
-        await gateway.offer(["openai-codex": ["gpt-6.1-sol-900k"], "openrouter": ["anthropic/claude-haiku-5.5"], "copilot": ["claude-haiku-5.5"]], current: "openai-codex::gpt-6.1-sol-900k")
+        await gateway.offer(["openai-codex": ["gpt-6.1-sol-900k"], "anthropic": ["claude-haiku-5-5"], "copilot": ["claude-haiku-5.5"]], current: "openai-codex::gpt-6.1-sol-900k")
         let controller = SharedSessionController(gateway: gateway, records: ControllerRecords(), defaults: defaults)
         XCTAssertEqual(controller.modelPreference, .builtIn)
         var ready: Data?
@@ -13,10 +13,10 @@ import XCTest
         let launch = HermesGatewayLaunch.command(executable: "/usr/bin/true", arguments: [])
         try await controller.connect(launch: launch)
         let initial = await gateway.modelCalls
-        XCTAssertEqual(initial, ["openrouter::anthropic/claude-haiku-5.5"], "session-scoped switch only")
+        XCTAssertEqual(initial, ["anthropic::claude-haiku-5-5"], "session-scoped switch only")
         XCTAssertTrue(controller.modelPreferenceApplied)
         let readyRoot = try XCTUnwrap(try JSONSerialization.jsonObject(with: XCTUnwrap(ready)) as? [String: Any])
-        XCTAssertEqual(readyRoot["provider"] as? String, "openrouter", "tray receives the post-switch inventory")
+        XCTAssertEqual(readyRoot["provider"] as? String, "anthropic", "tray receives the post-switch inventory")
         try await controller.switchModel(model: "claude-haiku-5.5", provider: "copilot") {}
         XCTAssertEqual(defaults.string(forKey: "xcreen.hermes.model.provider"), "copilot")
         XCTAssertEqual(defaults.string(forKey: "xcreen.hermes.model.id"), "claude-haiku-5.5")
@@ -25,7 +25,7 @@ import XCTest
         XCTAssertEqual(restored.modelPreference, XCreenModelPreference(provider: "copilot", model: "claude-haiku-5.5"))
         try await restored.connect(launch: launch)
         let calls = await gateway.modelCalls
-        XCTAssertEqual(calls, ["openrouter::anthropic/claude-haiku-5.5", "copilot::claude-haiku-5.5", "copilot::claude-haiku-5.5"])
+        XCTAssertEqual(calls, ["anthropic::claude-haiku-5-5", "copilot::claude-haiku-5.5", "copilot::claude-haiku-5.5"])
         await restored.disconnect()
     }
 
