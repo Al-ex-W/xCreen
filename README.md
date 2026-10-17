@@ -16,7 +16,7 @@ Looking for an open-source Rewind or Microsoft Recall alternative for Mac? xCree
 
 ## What it does
 
-- **Menu-bar tray, Spotlight and CLI.** Ask questions about what you've seen from the tray, the macOS 26+ "Ask xCreen" Spotlight action (it fills the question in, you submit), or `xcreen ask` in a terminal.
+- **Menu-bar tray, Spotlight and CLI.** Ask questions about what you've seen from the tray, the macOS 26+ "Ask xCreen" Spotlight action or the "Search xCreen" row Spotlight offers under "Search in Apps" for any typed text (both fill the question in, you submit), or `xcreen ask` in a terminal.
 - **Local capture with dedup.** Runs Apple Vision OCR on the foreground window at most once per second and drops text that is ≥90% similar to the last snapshot. Saves a screenshot every 10 active seconds.
 - **Batches into one Hermes session.** Every 5 active minutes (or 30 images), a batch goes to a single persistent xCreen session in your Hermes Agent. It does not start a new chat each time.
 - **Sourced insights in your Daily notes.** The model appends only useful findings to that day's note in your Obsidian vault, each linked to its captured evidence. If nothing is worth saving, the batch is marked skipped.

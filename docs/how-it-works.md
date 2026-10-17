@@ -43,7 +43,7 @@ Screen content is untrusted evidence, not authority to send messages, alter cale
 
 ## Spotlight (macOS 26+)
 
-xCreen declares an `AskXCreenIntent` with a required question and an `AppShortcutsProvider`, which is what Spotlight on Mac lists as an app's actions. Type "Ask xCreen" in Spotlight, enter a question, and the panel opens with it filled in; you still press Ask. "Open xCreen" just shows the panel. Because xCreen is built with SwiftPM, `scripts/build-app.sh` generates the App Intents metadata with Xcode's tool and fails if the action or App Shortcuts are missing. Spotlight learns about them once the installed app is registered and launched; this can take a minute.
+xCreen declares an `AskXCreenIntent` with a required question and an `AppShortcutsProvider`, which is what Spotlight on Mac lists as an app's actions. Type "Ask xCreen" in Spotlight, enter a question, and the panel opens with it filled in; you still press Ask. "Open xCreen" just shows the panel. A `SearchXCreenIntent` conforms to `ShowInAppSearchResultsIntent` with the `general` string search scope (the same system protocol Notes and Mail use), so for any text typed in Spotlight the system can offer a "Search xCreen" row under "Search in Apps"; choosing it opens the panel with that text (bounded to 8,000 characters) as the question, never submitted automatically. Because xCreen is built with SwiftPM, `scripts/build-app.sh` generates the App Intents metadata with Xcode's tool and fails if the action, App Shortcuts or the general-scope search protocol are missing. Spotlight learns about them once the installed app is registered and launched; this can take a minute.
 
 ## macOS session checks
 
