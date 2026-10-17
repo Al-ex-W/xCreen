@@ -69,6 +69,7 @@ public protocol HermesGatewayTransport: Sendable {
     func setHidden(sessionID: String, hidden: Bool) async throws -> Bool
     func switchModel(sessionID: String, model: String, provider: String) async throws -> Data
     func compress(sessionID: String) async throws -> Data
+    func compactHard(sessionID: String, keepLast: Int) async throws -> Data
     func submit(sessionID: String, text: String) async throws -> Data
     func submitBatch(sessionID: String, text: String, images: [HermesEvidenceAttachment], transmissionAllowed: @escaping @Sendable () async -> Bool) async throws
     func cancel(sessionID: String) async throws -> Data
@@ -76,6 +77,7 @@ public protocol HermesGatewayTransport: Sendable {
 }
 
 public extension HermesGatewayTransport {
+    func compactHard(sessionID: String, keepLast: Int) async throws -> Data { try await compress(sessionID: sessionID) }
     func manualContext(sessionID: String) async throws { throw HermesGatewayError.unavailable }
     func historyPage(sessionID: String, cursor: String?) async throws -> Data { throw HermesGatewayError.unavailable }
     func prepareBatch(sessionID: String, batchID: String, sourceIDs: [String]) async throws -> Data { throw HermesGatewayError.unavailable }
@@ -95,6 +97,12 @@ public actor HermesGateway: HermesGatewayTransport {
     /// Broadcast: the session runtime and the UI each hold their own subscription.
     private var subscribers: [UUID: AsyncStream<HermesGatewayEvent>.Continuation] = [:]
     private let defaultDeadline: TimeInterval
+    /// Hard cap for turn-path RPCs that Hermes may legitimately block on (compaction before a
+    /// turn, busy-session submit). Their idle timer resets on every gateway event, so a silent
+    /// gateway still fails after `defaultDeadline` while a progressing one may run up to this cap.
+    private let longDeadline: TimeInterval
+    private struct LongWait { let started: ContinuousClock.Instant; var lastProgress: ContinuousClock.Instant }
+    private var longWaits: [Int: LongWait] = [:]
     private let maximumLineBytes = 1_048_576
 
     /// Gateway stderr goes to `~/Library/Logs/xCreen/gateway.log` (shown by `xcreen logs --gateway`).
@@ -109,7 +117,10 @@ public actor HermesGateway: HermesGatewayTransport {
         return handle
     }
 
-    public init(defaultDeadline: TimeInterval = 20) { self.defaultDeadline = min(max(defaultDeadline, 0.1), 60) }
+    public init(defaultDeadline: TimeInterval = 20, longDeadline: TimeInterval = 600) {
+        self.defaultDeadline = min(max(defaultDeadline, 0.1), 60)
+        self.longDeadline = min(max(longDeadline, self.defaultDeadline), 1_800)
+    }
 
     public func start(launch: HermesGatewayLaunch) async throws {
         guard process == nil else { return }
@@ -165,7 +176,7 @@ public actor HermesGateway: HermesGatewayTransport {
         return data
     }
     public func manualContext(sessionID: String) async throws {
-        let reply = try decodeObject(await request("xcreen.batch.context", ["session_id": sessionID, "mode": "manual"]))
+        let reply = try decodeObject(await request("xcreen.batch.context", ["session_id": sessionID, "mode": "manual"], long: true))
         guard reply["session_id"] as? String == sessionID, reply["mode"] as? String == "manual" else { throw HermesGatewayError.protocolFailure }
     }
     public func prepareBatch(sessionID: String, batchID: String, sourceIDs: [String]) async throws -> Data {
@@ -190,8 +201,15 @@ public actor HermesGateway: HermesGatewayTransport {
         }
         return reply
     }
-    public func compress(sessionID: String) async throws -> Data { try await request("session.compress", ["session_id": sessionID]) }
-    public func submit(sessionID: String, text: String) async throws -> Data { guard validText(text, max: 32_000) else { throw HermesGatewayError.protocolFailure }; return try await request("prompt.submit", ["session_id": sessionID, "text": text]) }
+    public func compress(sessionID: String) async throws -> Data { try await request("session.compress", ["session_id": sessionID], long: true) }
+    /// Boundary-aware hard compaction: Hermes parses `here N` in `session.compress`'s focus_topic
+    /// (session_compression.py, shared with `/compress here N`) and keeps only the last N exchanges
+    /// verbatim. `--aggressive` is unsupported upstream. `session.compress` waits for a lazy
+    /// resumed session's agent build (`_sess`), unlike the `/model` slash no-op.
+    public func compactHard(sessionID: String, keepLast: Int) async throws -> Data {
+        try await request("session.compress", ["session_id": sessionID, "focus_topic": "here \(min(max(keepLast, 1), 20))"], long: true)
+    }
+    public func submit(sessionID: String, text: String) async throws -> Data { guard validText(text, max: 32_000) else { throw HermesGatewayError.protocolFailure }; return try await request("prompt.submit", ["session_id": sessionID, "text": text], long: true) }
     public func submitBatch(sessionID: String, text: String, images: [HermesEvidenceAttachment], transmissionAllowed: @escaping @Sendable () async -> Bool) async throws {
         guard !images.isEmpty, images.count <= 64, validText(text, max: 32_000) else { throw HermesGatewayError.protocolFailure }
         for image in images {
@@ -212,29 +230,46 @@ public actor HermesGateway: HermesGatewayTransport {
         }
     }
     private func expireReady(_ token: UUID) { readyWaiters.removeValue(forKey: token)?.resume(throwing: HermesGatewayError.deadlineExceeded) }
-    private func request(_ method: String, _ params: [String: Any]) async throws -> Data {
+    private func request(_ method: String, _ params: [String: Any], long: Bool = false) async throws -> Data {
         guard let input, process?.isRunning == true else { throw HermesGatewayError.unavailable }; let id = nextID; nextID += 1
         let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]; let data = try JSONSerialization.data(withJSONObject: frame)
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
-            do { try input.write(contentsOf: data + Data([10])); Task { [weak self] in try? await Task.sleep(for: .seconds(self?.defaultDeadline ?? 0)); await self?.expire(id: id) } }
+            do {
+                try input.write(contentsOf: data + Data([10]))
+                if long { let now = ContinuousClock.now; longWaits[id] = LongWait(started: now, lastProgress: now); Task { [weak self] in await self?.watchLong(id: id) } }
+                else { Task { [weak self] in try? await Task.sleep(for: .seconds(self?.defaultDeadline ?? 0)); await self?.expire(id: id) } }
+            }
             catch { pending.removeValue(forKey: id); continuation.resume(throwing: error) }
         }
     }
-    private func expire(id: Int) { pending.removeValue(forKey: id)?.resume(throwing: HermesGatewayError.deadlineExceeded) }
+    private func expire(id: Int) { longWaits[id] = nil; pending.removeValue(forKey: id)?.resume(throwing: HermesGatewayError.deadlineExceeded) }
+    /// Idle deadline that any gateway event resets, bounded by `longDeadline` wall clock.
+    private func watchLong(id: Int) async {
+        let idle = Duration.seconds(defaultDeadline), cap = Duration.seconds(longDeadline)
+        while let wait = longWaits[id], pending[id] != nil {
+            let now = ContinuousClock.now
+            if now - wait.lastProgress >= idle || now - wait.started >= cap { expire(id: id); return }
+            let next = min(wait.lastProgress + idle, wait.started + cap)
+            try? await Task.sleep(until: next, clock: .continuous)
+        }
+        longWaits[id] = nil
+    }
     private func receive(_ line: Data, token: UUID) {
         guard token == processToken else { return }
         guard line.count <= maximumLineBytes, let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
         if object["method"] as? String == "event", let params = object["params"] as? [String: Any], let type = params["type"] as? String, JSONSerialization.isValidJSONObject(params), let payload = try? JSONSerialization.data(withJSONObject: params) {
+            if !longWaits.isEmpty { let now = ContinuousClock.now; for key in longWaits.keys { longWaits[key]?.lastProgress = now } }
             if type == "gateway.ready" { isReady = true; let waiters = readyWaiters; readyWaiters.removeAll(); waiters.values.forEach { $0.resume() } }; broadcast(.init(type: type, payload: payload)); return
         }
         guard let id = object["id"] as? Int, let continuation = pending.removeValue(forKey: id) else { return }
+        longWaits[id] = nil
         if let error = object["error"] as? [String: Any] { continuation.resume(throwing: HermesGatewayError.remoteFailure(error["message"] as? String ?? "unknown error")) }
         else if let result = object["result"], JSONSerialization.isValidJSONObject(result), let data = try? JSONSerialization.data(withJSONObject: result) { continuation.resume(returning: data) }
         else { continuation.resume(throwing: HermesGatewayError.protocolFailure) }
     }
     private func disconnect(token: UUID) { guard token == processToken else { return }; disconnect() }
-    private func disconnect() { processToken = nil; process = nil; input = nil; isReady = false; let ended = subscribers; subscribers.removeAll(); ended.values.forEach { $0.finish() }; let waiters = readyWaiters; readyWaiters.removeAll(); waiters.values.forEach { $0.resume(throwing: HermesGatewayError.unavailable) }; let waiting = pending; pending.removeAll(); waiting.values.forEach { $0.resume(throwing: HermesGatewayError.unavailable) } }
+    private func disconnect() { processToken = nil; process = nil; input = nil; isReady = false; let ended = subscribers; subscribers.removeAll(); ended.values.forEach { $0.finish() }; let waiters = readyWaiters; readyWaiters.removeAll(); waiters.values.forEach { $0.resume(throwing: HermesGatewayError.unavailable) }; let waiting = pending; pending.removeAll(); longWaits.removeAll(); waiting.values.forEach { $0.resume(throwing: HermesGatewayError.unavailable) } }
     private func decodeObject(_ data: Data) throws -> [String: Any] { guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw HermesGatewayError.protocolFailure }; return value }
     private func validText(_ value: String, max: Int) -> Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && value.utf8.count <= max }
 }
