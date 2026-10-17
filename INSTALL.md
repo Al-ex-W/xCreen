@@ -1,6 +1,6 @@
 # Installing xCreen
 
-Requires macOS 14+, Xcode/Swift and Python 3, plus Hermes Agent (`hermes --print-runtime-command`). Do not edit Hermes auth/config, grant screen permissions, enable capture, inspect private vault contents or run inference to verify installation.
+Requires macOS 14+, Xcode/Swift and Python 3, plus an installed [Hermes Agent](https://github.com/NousResearch/hermes-agent) (check with `hermes --print-runtime-command`). xCreen uses your Hermes profile read-only and sends inference to whichever provider your selected route uses; local OCR does not make inference local. Do not edit Hermes auth/config, grant screen permissions, enable capture, inspect private vault contents or run inference to verify installation.
 
 ```sh
 git clone https://github.com/Al-ex-W/xCreen.git
@@ -35,10 +35,11 @@ xcreen settings set vault "/absolute/vault"
 xcreen settings set vault "" # disables Daily-note writing
 xcreen settings autodetect
 xcreen connection reconnect
-xcreen model select PROVIDER EXACT_MODEL_ID
+xcreen model default                       # show the xCreen session default
+xcreen model select PROVIDER EXACT_MODEL_ID # also saves it as the xCreen default
 ```
 
-Settings are persisted by the running app and its gateway reconnects; session identity is retained. Do not use `defaults write` as a parallel live control surface. The installer pre-fills defaults only while the app is stopped.
+Settings are persisted by the running app and its gateway reconnects; session identity is retained. The xCreen session default is Claude Haiku 5.5 via OpenRouter (`openrouter` / `anthropic/claude-haiku-5.5`) until you pick another configured route in the tray or with `xcreen model default PROVIDER MODEL`; it applies only to the xCreen session, never Hermes's global default, and an unavailable model is reported rather than replaced. Do not use `defaults write` as a parallel live control surface. The installer pre-fills defaults only while the app is stopped.
 
 ## User-only deliberate actions
 The **Show session in Hermes** tray toggle defaults OFF (hidden). Use `xcreen session visibility on` or `off` to change that same persisted preference for the existing xCreen session. Offline changes remain pending until connection/resume applies them. `xcreen --json status` separates desired `sessionVisible`, last gateway-confirmed `actualSessionVisible` (absent when unknown), and `sessionVisibilityPending`. No profile defaults, session identity, Integrity preference or capture behavior change. Upgrading an existing install with no saved visibility preference applies hidden on its next connection, even if the session was previously manually unhidden.
@@ -59,4 +60,4 @@ defaults delete dev.xcreen.app
 
 Optionally remove `~/Library/Application Support/xCreen`, `~/Library/Logs/xCreen`, and `~/.xcreen-control` after stopping. This does not delete Hermes history, vault notes, backups or provider retention.
 
-See [CLI parity](docs/cli-parity.md) and [implementation limits](docs/implementation-progress.md).
+See the [CLI reference](docs/cli.md), [CLI parity](docs/cli-parity.md) and [implementation limits](docs/implementation-progress.md).
