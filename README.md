@@ -1,80 +1,109 @@
-# xCreen
+# xCreen — open-source screen memory for macOS
 
-A native macOS tray app and terminal control surface for one dedicated, persistent Hermes session.
+**Open-source (Apache-2.0) screen memory for macOS that writes useful, source-linked insights into your Obsidian daily notes, powered by your own [Hermes Agent](https://github.com/NousResearch/hermes-agent) and whichever models you configure.**
 
-**Developer build, not security audited or notarized.** Integrity defaults ON and preserves the user's explicitly chosen preference across restart. Only explicit tray/CLI actions change the switch. Actual capture/automatic inference stay blocked until current permissions, session state and foreground eligibility are verified. Do not enable capture during development verification.
+An open-source alternative to Rewind, Retrace, screenpipe, Goldfish and Microsoft Recall for people who already run Hermes Agent on a Mac.
 
-## Install and test
+[![Verify](https://github.com/Al-ex-W/xCreen/actions/workflows/verify.yml/badge.svg)](https://github.com/Al-ex-W/xCreen/actions/workflows/verify.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Platform: macOS 14+](https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey.svg)](INSTALL.md)
 
-Requires macOS 14+, Swift/Xcode, Python 3 and an installed Hermes Agent. Follow [INSTALL.md](INSTALL.md).
+![xCreen menu-bar tray](docs/assets/tray.png)
+
+<sub>The real tray view rendered offscreen with synthetic demo data (`scripts/render-screenshots.sh`); not a capture of anyone's screen.</sub>
+
+> **Developer build.** Not notarized and not security-audited. Integrity (capture off) is ON by default.
+
+## What it does
+
+- **Menu-bar tray, Spotlight and CLI.** Ask questions about what you've seen from the tray, the macOS 26+ "Ask xCreen" Spotlight action (it fills the question in, you submit), or `xcreen ask` in a terminal.
+- **Local capture with dedup.** Runs Apple Vision OCR on the foreground window at most once per second and drops text that is ≥90% similar to the last snapshot. Saves a screenshot every 10 active seconds.
+- **Batches into one Hermes session.** Every 5 active minutes (or 30 images), a batch goes to a single persistent xCreen session in your Hermes Agent. It does not start a new chat each time.
+- **Sourced insights in your Daily notes.** The model appends only useful findings to that day's note in your Obsidian vault, each linked to its captured evidence. If nothing is worth saving, the batch is marked skipped.
+- **Integrity switch.** One switch, controlled only by you, stops all new screenshots and OCR. It is ON at first launch and keeps your choice across restarts.
+- **7-day local retention, any model.** Raw evidence is deleted after seven days. You can pick any model your Hermes setup has configured. The default for the xCreen session is Claude Haiku 5.5 via OpenRouter.
+
+## xCreen vs alternatives
+
+Facts come from each project's own public pages, checked October 2026 ([sources](#sources)). Products change, so check the linked pages yourself.
+
+| | xCreen | Rewind | screenpipe | Retrace | Goldfish | Microsoft Recall |
+|---|---|---|---|---|---|---|
+| Platform | macOS 14+ | macOS[^rw1] | macOS, Windows, Linux[^sp1] | macOS 13+, Apple Silicon[^rt1] | macOS, Windows[^gf1] | Windows 11 Copilot+ PCs[^ms1] |
+| License / source | Apache-2.0, open source | — | Source-available Screenpipe Commercial License; personal non-commercial use free, commercial use needs a license[^sp2] | MIT, open source[^rt2] | Not covered here | Windows feature |
+| Capture method | Foreground-window screenshots + local Vision OCR | Screen and audio recording[^rw1] | Accessibility tree, OCR fallback, audio transcription[^sp1] | Screenshots every 2 s + Vision OCR, SQLite FTS5[^rt1] | Foreground-window text via Accessibility, no screenshots[^gf2] | Periodic snapshots[^ms1] |
+| Where AI runs | Whichever provider your Hermes route uses (OCR is local, inference usually isn't) | — | Local models (e.g. Ollama) or cloud AI, as you configure[^sp1] | No model inference listed as active[^rt1] | Cloud: Azure OpenAI via Cloudflare; memory stored locally[^gf2] | Processed locally on the PC[^ms2] |
+| Writes to your notes | Yes, sourced entries in Obsidian Daily notes | — | — | — | Keeps its own local memory, exposed over MCP[^gf2] | — |
+| Status | Developer build | Shut down: capture disabled Dec 19, 2025 after Meta acquired Limitless[^rw1][^rw2] | Actively developed[^sp1] | "Very early development"[^rt1] | Free beta[^gf1] | Available on supported PCs[^ms1] |
+
+"—" and "Not covered here" mean we did not check a primary source for that cell. Rewind's AI features are left out because the app has been discontinued.
+
+## Requirements and who it's for
+
+xCreen suits Mac users who already run Hermes Agent, keep notes in Obsidian, and are fine using a developer build.
+
+- **A working [Hermes Agent](https://github.com/NousResearch/hermes-agent) install is required.** xCreen does not include a model or keep API keys. It uses your Hermes profile read-only.
+- **Local OCR does not mean local inference.** Batches and questions go to the provider behind your chosen route, and that provider's retention rules apply. For on-device inference, configure a local model in Hermes.
+- **Developer build.** You build it from source with Swift/Xcode. It is not notarized. Use a stable signing identity so macOS keeps the Screen Recording permission across reinstalls.
+- macOS 14 or later, Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later.
+
+## Quick start
 
 ```sh
-bash scripts/install.sh --no-launch
-swift test
-python3 -m unittest discover -s bridge/tests -v
-python3 -m unittest discover -s runtime/tests -v
-python3 -m unittest discover -s Tests -p '*_test.py' -v
-bash scripts/build-app.sh
+git clone https://github.com/Al-ex-W/xCreen.git && cd xCreen
+bash scripts/install.sh           # builds, installs to ~/Applications, copies `xcreen` to ~/.local/bin
+xcreen status                     # Integrity should report ON (capture paused)
 ```
 
-The installer copies a standalone `xcreen` executable into `~/.local/bin`; it is not a checkout symlink. The app bundles its scoped Python runtime. Moving/removing the checkout does not remove the installed CLI or runtime.
+Turn Integrity OFF from the tray when you want capture to start. See [INSTALL.md](INSTALL.md) for vault setup, signing, verification and uninstalling.
 
-## One state owner, two interfaces
+## Privacy and safety
 
-The running app's `MainActor` state and shared session controller own Integrity, paths, model selection, connection, query, response and reply attachments. Lifecycle transactions are ordered across awaits; launch settings and observers are bound to their connection generation. The CLI sends private Unix-socket requests to that same owner. It does not read cached status as live truth, edit defaults, spawn a separate inference process, or create another conversation.
+- **What's captured** (only while Integrity is OFF and the Mac is unlocked and awake): screenshots and OCR text of the eligible foreground window.
+- **Where it's stored:** in private files under `~/Library/Application Support/xCreen`, outside your vault and outside this repository. This storage is not encrypted, so use FileVault. Only distilled, source-linked insights go into Daily notes.
+- **Retention:** raw evidence expires after 7 days. Anything already sent to your model provider or saved in Hermes history follows their retention rules. Deletion does not guarantee forensic erasure.
+- **Excluded:** known password managers (1Password, Bitwarden, LastPass, Dashlane, KeePass, Apple Passwords, Keychain), System Settings, lock and login screens, and xCreen itself.
+- **NOT protected:** browser password fields, password-manager browser extensions and popovers, and incognito/private windows are **not detected or redacted**. Turn Integrity ON before sensitive browsing.
+- **Integrity is user-only:** only your tray or CLI action changes it. The model and screen content cannot turn capture on. Screen text is treated as untrusted evidence, never as instructions.
+
+Full rules and limits: [SECURITY.md](SECURITY.md) · [How it works](docs/how-it-works.md).
+
+## CLI
 
 ```sh
 xcreen status
-xcreen --json status
-xcreen integrity get
+xcreen ask "What was the error I saw in the build log this morning?"
 xcreen integrity on
-xcreen session visibility get
-xcreen session visibility on
-xcreen session visibility off
-xcreen connection reconnect
 xcreen models list
-xcreen model select PROVIDER EXACT_MODEL_ID
-xcreen settings show
-xcreen settings set vault ""
-xcreen settings autodetect
-xcreen ask "Summarize my recent context" --wait-ms 30000
-xcreen history
-xcreen cancel
-xcreen images list
-xcreen images open IMAGE_ID
-xcreen panel show
-xcreen panel hide
-xcreen logs --no-follow
-xcreen start
-xcreen stop
-xcreen restart
+xcreen batches
 ```
 
-`xcreen integrity off` is an explicit user capture-consent action, equivalent to the tray switch. A denied safety gate leaves the requested switch OFF but capture suspended/blocked with its reason. Lock, sleep and errors never change the user's switch. Startup does not request permissions. Never run OFF as an automated installation/test step. Integrity ON does not erase history or block deliberate historical questions.
+Full command list and semantics: [docs/cli.md](docs/cli.md).
 
-`ask` submits once to the existing xCreen session. Waiting is bounded to 30 seconds; expiry does **not** cancel an admitted turn. Use `history` or `cancel`. History comes from the host's `xcreen.history.page` for the exact resumed runtime session, not a second transcript database. `history [--after CURSOR]` returns sanitized stable snapshot pages bounded before gateway stdout, flags oversized messages and removes image pixels. Evicted/restarted host cursors fail explicitly. `batches [--after BATCH_ID]` lists up to 20 byte-bounded processing-state and actual receipt metadata records, also visible in the tray; continue from the last ID until an empty page. `xcreen verify` / tray Verify receipts reconcile exact host receipts without inference or note writes. See [native durability](docs/durable-native-processing.md). Images list/open are the current answer's resolved attachment IDs, not arbitrary paths or a general filesystem browser.
+## Documentation
 
-Ask, history and model inventory may reconnect the dedicated session; connection failures are explicit. Cancel targets the admitted manual question, including a question queued behind automatic work, not an unrelated automatic turn. Settings changes report persistence and reconnect failure separately. Global `--json` goes before the command; option-shaped question/setting values stay literal. Start launches the installed app without enabling capture; stop/quit request graceful app-owned teardown. No process-name kill is used by the CLI. See [CLI/tray parity](docs/cli-parity.md) for command semantics and security limits.
+- [Install](INSTALL.md) · [CLI reference](docs/cli.md) · [How it works](docs/how-it-works.md)
+- [Architecture](docs/architecture.md) · [CLI/tray parity](docs/cli-parity.md) · [Native durability](docs/durable-native-processing.md)
+- [Implementation progress and limits](docs/implementation-progress.md) · [Working specification](docs/working-spec.md) · [Toolkit contract](docs/toolkit-contract.md)
+- [Platform research](docs/platform-research.md) · [macOS session research](docs/macos-session-research.md) · [License research](docs/licensing-research.md)
 
-## Native pipeline and boundaries
-The tray's **Show session in Hermes** switch and `xcreen session visibility [get|on|off]` share one app-owned persisted preference, default **OFF (hidden)**. They update the existing active session, never create another conversation or change profile defaults. Connect/resume reapplies the saved preference. Offline changes are saved and reported **pending**, separately from gateway-confirmed visibility; they do not connect automatically. This switch does not affect Integrity or capture. See [CLI/tray parity](docs/cli-parity.md) for acknowledgment and lineage semantics.
+## Contributing
 
-When explicitly enabled and all gates permit it, the foreground window is sampled for local Vision OCR at most once per eligible second. OCR >=90% similar to the last saved snapshot is discarded; independent screenshots are saved every ten active seconds. Five active minutes/30 images form a durable batch, sent with timestamp/ID binding to the same xCreen session. Private evidence files remain outside the vault and expire after seven days. No forensic-erasure or database-encryption claim is made; use FileVault.
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Don't put screenshots, OCR text or vault contents in issues. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
-The bundled Hermes runtime registers only the scoped xCreen tools: latest/range OCR listing, timestamped coverage status, OCR search, nearby image lookup, native image loading, and useful source-bound insights appended to capture-date Daily notes when a vault is configured. A missing dated file may be created with a minimal heading in the existing Daily directory; executable templates are never evaluated. Entry receipts support crash reconciliation. Native automatic turns prepare an immutable host-validated batch binding and complete only after explicit saved/skipped model results and host-verified effect receipts; startup and read-only CLI/tray verification reconcile exact receipts without blind resend or history dependence. Expired raw evidence is stripped while bounded receipt/source-binding metadata remains. It does not modify Hermes profile defaults or other conversations. Model inventory comes from Hermes provider-aware configured routes, not demo Haiku/Luna controls. xCreen keeps its own session default (Claude Haiku 5.5 via OpenRouter unless changed with the tray picker or `xcreen model default`), applied only to the xCreen session and reported if unavailable. Inventory currently carries no reliable vision/image-limit metadata.
+## License
 
-Browsers are eligible, including Safari, Chrome, Firefox, Edge and Brave. Known credential/security apps, System Settings and xCreen remain excluded. **Browser password fields, password-manager extensions/popovers and incognito/private windows are not detected or redacted.** Visible secrets can enter screenshots/OCR and later model batches; turn Integrity ON before sensitive browsing. There is no universal password/login protection guarantee. See [security boundaries](SECURITY.md) for exact matching and limitations. Screen content is untrusted evidence, not authority to send messages, alter calendars or execute instructions. macOS session checks require a present dictionary, strict true console/login values and a resolvable non-security foreground. The undocumented lock hint may be absent or strict false; true/malformed hints and independent notification vetoes block. These are compatibility checks, not a documented synchronous unlock API (see [session research](docs/macos-session-research.md)). Capture, TCC transitions, provider inference, live vault writes and Spotlight ranking still need separate user-authorized on-device verification.
+[Apache-2.0](LICENSE) with [NOTICE](NOTICE), © Alexander Wahlström. Free for personal and commercial use. Redistributed forks must keep the Apache notices, but no advertising credit is required. Goldfish and Retrace were used as research references only. They are not dependencies, and no code was copied from them.
 
-`xcreen://ask?query=...` and the macOS 26+ Ask xCreen App Intent only open/fill the panel, never submit automatically. Arbitrary-query Spotlight interception is not claimed.
+## Sources
 
-## Documentation and license
-
-- [Architecture](docs/architecture.md)
-- [Implementation progress and limits](docs/implementation-progress.md)
-- [User-approved working specification](docs/working-spec.md)
-- [Scoped toolkit contract](docs/toolkit-contract.md)
-- [Security](SECURITY.md)
-- [Platform research](docs/platform-research.md)
-- [License research](docs/licensing-research.md)
-
-Apache-2.0 + [NOTICE](NOTICE), copyright Alexander Wahlström. Free personal/commercial use; distributed forks must preserve Apache notices, not prominent advertising credit. Goldfish and Retrace are research references, not dependencies; no implementation code was copied from them.
+[^rw1]: 9to5Mac, "Rewind Mac app shutting down following Meta acquisition", 2025-12-05 — https://9to5mac.com/2025/12/05/rewind-limitless-meta-acquisition/
+[^rw2]: "What happened to Rewind" (the rewind.ai domain now belongs to an unaffiliated site) — https://rewind.ai/what-happened-to-rewind/
+[^sp1]: screenpipe README — https://github.com/screenpipe/screenpipe
+[^sp2]: screenpipe LICENSE.md — https://github.com/screenpipe/screenpipe/blob/main/LICENSE.md
+[^rt1]: Retrace README — https://github.com/haseab/retrace
+[^rt2]: Retrace LICENSE — https://github.com/haseab/retrace/blob/main/LICENSE
+[^gf1]: Goldfish website — https://goldfish.sh
+[^gf2]: Goldfish privacy documentation — https://docs.goldfish.sh/privacy.md
+[^ms1]: Microsoft Support, "Retrace your steps with Recall" — https://support.microsoft.com/en-us/windows/retrace-your-steps-with-recall-aa03f8a0-a78b-4b3e-b0a1-2eb8ac48701c
+[^ms2]: Microsoft Support, "Privacy and control over your Recall experience" — https://support.microsoft.com/en-us/windows/privacy-and-control-over-your-recall-experience-d404f672-7647-41e5-886c-a3c59680af15
