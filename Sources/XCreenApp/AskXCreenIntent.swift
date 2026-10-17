@@ -24,9 +24,13 @@ struct AskXCreenIntent: AppIntent {
         Summary("Ask xCreen \(\.$question)")
     }
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        guard let url = AskShortcut.url(question: question) else { throw AskXCreenIntentError.invalidQuestion }
-        return .result(opensIntent: OpenURLIntent(url))
+    /// openAppWhenRun runs this inside the app, so deliver in-process. OpenURLIntent with the
+    /// custom xcreen:// scheme is refused by the App Intents runtime ("launch is prohibited").
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        guard case .ask = PanelHandoff(question: question) else { throw AskXCreenIntentError.invalidQuestion }
+        AppDelegate.shared?.receiveIntent(PanelHandoff(question: question))
+        return .result()
     }
 }
 
@@ -37,14 +41,16 @@ struct OpenXCreenIntent: AppIntent {
     static let description = IntentDescription("Show the xCreen panel from the menu bar.")
     static let openAppWhenRun = true
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(AskShortcut.openURL))
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        AppDelegate.shared?.receiveIntent(.open)
+        return .result()
     }
 }
 
 /// Spotlight's "Search in Apps" fallback. Conforming to `ShowInAppSearchResultsIntent` with the
 /// `.general` scope makes the system offer a "Search xCreen" row for any typed query, passing the
-/// text as `criteria.term`. It uses the same bounded `xcreen://ask` handoff: fills, never submits.
+/// text as `criteria.term`. It uses the same bounded in-process handoff: fills, never submits.
 @available(macOS 26.0, *)
 struct SearchXCreenIntent: ShowInAppSearchResultsIntent {
     static let title: LocalizedStringResource = "Ask xCreen"
@@ -57,8 +63,10 @@ struct SearchXCreenIntent: ShowInAppSearchResultsIntent {
     @Parameter(title: "Criteria", description: "The text to ask xCreen about.")
     var criteria: StringSearchCriteria
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(AskShortcut.searchURL(term: criteria.term)))
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        AppDelegate.shared?.receiveIntent(PanelHandoff(question: criteria.term))
+        return .result()
     }
 }
 

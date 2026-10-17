@@ -19,6 +19,7 @@ import XCreenUI
         }
     }
     @Published var query = ""
+    @Published var lastQuestion = ""
     @Published var submissionMessage = ""
     @Published var batchMetadata = ""
     @Published var batchCursor = ""
@@ -347,7 +348,7 @@ import XCreenUI
     }
 
     func acceptURLQuery(_ value: String) {
-        query = value
+        query = AskFieldPolicy.prefill(value)
         submissionMessage = ""
     }
 
@@ -436,7 +437,8 @@ import XCreenUI
             let answer = try controller.admitManual(XCreenPrompts.manual(question: question), launch: frozenLaunch())
             let presentationID = UUID(); manualPresentationID = presentationID
             streamedReply = ""; submissionMessage = "Asking Hermes…"
-            query = question
+            lastQuestion = question
+            query = AskFieldPolicy.fieldAfterAdmission(current: query, submitted: question)
 
             let completion = TurnCompletion()
             Task { @MainActor in
@@ -509,6 +511,9 @@ extension AppState: TrayPanelModel {}
     private var controlServer: LocalControlServer?
     private var handoffs = AskHandoffInbox()
 
+    /// Set before app.run so an App Intent arriving during a cold launch is buffered, not lost.
+    override init() { super.init(); Self.shared = self }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
         do { controlServer = try LocalControlServer { [weak self] command in
@@ -550,6 +555,12 @@ extension AppState: TrayPanelModel {}
     }
 
     /// Opens/fills the panel only; the user still submits the question.
+    /// In-process delivery from App Intents (openAppWhenRun runs perform() inside this app).
+    /// Buffered on cold launch like URLs; fills the panel, never submits.
+    func receiveIntent(_ handoff: PanelHandoff) {
+        if let ready = handoffs.receive(handoff) { perform(ready) }
+    }
+
     private func perform(_ handoff: PanelHandoff) {
         if case .ask(let question) = handoff { state.acceptURLQuery(question) }
         showPanel()
