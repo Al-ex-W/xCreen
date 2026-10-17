@@ -24,4 +24,10 @@ Foreground bundle/PID, permission, session and capture-generation checks remain 
 
 Private evidence remains outside the vault with bounded retention and private file permissions. File permissions are not encryption; use FileVault and a trusted OS account. Expiry cannot promise forensic erasure, backup deletion or deletion of Hermes/provider transcripts. Screen text is untrusted evidence, never authority to send messages, alter calendars or execute commands. No screenshots, raw OCR history, personal vault contents or credentials belong in the repository.
 
-Real TCC, capture, lock/sleep transitions, OCR, provider inference and live vault writes need separate user-authorized on-device verification. Synthetic tests and builds do not verify them. Do not include private data in public vulnerability reports; use GitHub private vulnerability reporting if available, or request a private reporting channel.
+Real TCC, capture, lock/sleep transitions, OCR, provider inference and live vault writes need separate user-authorized on-device verification. Synthetic tests and builds do not verify them.
+
+## Reporting a vulnerability
+
+Report privately through GitHub private vulnerability reporting: **[Security → Report a vulnerability](https://github.com/Al-ex-W/xCreen/security/advisories/new)**. Do not open a public issue or pull request for a security problem. If that form is unavailable, open a public issue that only asks for a private contact channel and includes no details.
+
+Include the macOS version, the xCreen commit, the affected component and reproduction steps using synthetic data. Never include real screenshots, OCR text, vault contents, Hermes transcripts or credentials. Only the latest `main` is supported; there are no released versions yet. This is a single-maintainer project, so response times are best-effort.
