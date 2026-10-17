@@ -34,6 +34,11 @@ public enum AskShortcut {
 extension AskShortcut {
     /// Parameterless handoff: show the panel without changing the question field.
     public static let openURL = URL(string: "xcreen://open")!
+
+    /// Spotlight "Search xCreen" row: fill the (bounded) typed term, or just open the panel when blank.
+    public static func searchURL(term: String) -> URL {
+        url(question: term) ?? openURL
+    }
 }
 
 /// What an `xcreen://` URL asks the tray to do. Neither case submits a question.

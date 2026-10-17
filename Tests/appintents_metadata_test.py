@@ -8,12 +8,21 @@ import tempfile
 import unittest
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / 'scripts/check-appintents-metadata.py'
+SEARCH_PROTOCOL = 'com.apple.link.systemProtocol.ShowInAppStringSearchResults'
 
 
 def good_metadata():
     return {
         'actions': {'AskXCreenIntent': {'visibilityMetadata': {'isDiscoverable': True, 'assistantOnly': False}},
-                    'OpenXCreenIntent': {'visibilityMetadata': {'isDiscoverable': True, 'assistantOnly': False}}},
+                    'OpenXCreenIntent': {'visibilityMetadata': {'isDiscoverable': True, 'assistantOnly': False}},
+                    'SearchXCreenIntent': {
+                        'visibilityMetadata': {'isDiscoverable': True, 'assistantOnly': False},
+                        'systemProtocols': [SEARCH_PROTOCOL],
+                        'systemProtocolMetadata': [SEARCH_PROTOCOL,
+                                                   {'showInAppStringSearchResults': {'searchScopes': ['general']}}],
+                        'parameters': [{'name': 'criteria',
+                                        'valueType': {'searchCriteria': {'wrapper': {'typeIdentifier': 0}}}}],
+                    }},
         'autoShortcutProviderMangledName': '9XCreenApp0A9ShortcutsV',
         'autoShortcuts': [
             {'actionIdentifier': 'AskXCreenIntent', 'phraseTemplates': [{'key': 'Ask ${applicationName}'}]},
@@ -62,6 +71,46 @@ class AppIntentsMetadataCheckTests(unittest.TestCase):
         metadata = good_metadata()
         metadata['autoShortcuts'] = metadata['autoShortcuts'][1:]
         self.assertNotEqual(self.run_check(metadata).returncode, 0)
+
+    def test_rejects_missing_or_hidden_search_action(self):
+        metadata = good_metadata()
+        del metadata['actions']['SearchXCreenIntent']
+        result = self.run_check(metadata)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('SearchXCreenIntent', result.stderr)
+        metadata = good_metadata()
+        metadata['actions']['SearchXCreenIntent']['visibilityMetadata']['isDiscoverable'] = False
+        self.assertNotEqual(self.run_check(metadata).returncode, 0)
+
+    def test_rejects_search_action_without_system_protocol(self):
+        metadata = good_metadata()
+        metadata['actions']['SearchXCreenIntent']['systemProtocols'] = []
+        result = self.run_check(metadata)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('ShowInAppStringSearchResults', result.stderr)
+
+    def test_rejects_search_action_without_general_scope(self):
+        for scopes in ([], ['movies'], None):
+            metadata = good_metadata()
+            action = metadata['actions']['SearchXCreenIntent']
+            if scopes is None:
+                action['systemProtocolMetadata'] = [SEARCH_PROTOCOL]
+            else:
+                action['systemProtocolMetadata'][1]['showInAppStringSearchResults']['searchScopes'] = scopes
+            result = self.run_check(metadata)
+            self.assertNotEqual(result.returncode, 0, scopes)
+            self.assertIn('general', result.stderr)
+
+    def test_rejects_search_action_without_criteria_parameter(self):
+        metadata = good_metadata()
+        metadata['actions']['SearchXCreenIntent']['parameters'] = []
+        result = self.run_check(metadata)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('criteria', result.stderr)
+
+    def test_reports_search_row(self):
+        result = self.run_check(good_metadata())
+        self.assertIn('SearchXCreenIntent', result.stdout)
 
     def test_rejects_missing_files(self):
         self.assertNotEqual(self.run_check(None).returncode, 0)
