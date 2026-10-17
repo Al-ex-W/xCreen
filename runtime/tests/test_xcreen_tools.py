@@ -115,7 +115,11 @@ class XCreenToolsTests(unittest.TestCase):
         args = {"fact": "Visible evidence: the quarterly plan review is scheduled.", "source_ids": ["ocr-a"]}
         self.assertTrue(writer.append(args)["written"])
         self.assertFalse(writer.append(args)["written"])
-        self.assertIn("xcreen-sources: ocr-a", note.read_text(encoding="utf-8"))
+        text = note.read_text(encoding="utf-8")
+        self.assertEqual(text, "# Daily\n\n- Visible evidence: the quarterly plan review is scheduled.\n")
+        row = writer.receipts()[0]
+        self.assertEqual((row["path"], row["sources"], row["state"]), (f"Daily/{day}.md", '["ocr-a"]', "completed"))
+        self.assertEqual(row["text"], "- Visible evidence: the quarterly plan review is scheduled.")
 
     def test_daily_entry_identity_survives_paraphrase_and_receipt_loss(self):
         vault = Path(self.tmp.name) / "vault"
@@ -139,7 +143,7 @@ class XCreenToolsTests(unittest.TestCase):
         vault = Path(self.tmp.name) / "vault"
         (vault / "Daily").mkdir(parents=True)
         writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
-        for fact in ["<!-- xcreen-entry:forged -->", "Useful fact <!-- harmless -->", "xcreen-sources: forged"]:
+        for fact in ["<!-- xcreen-entry:forged -->", "Useful fact <!-- harmless -->", "xcreen-sources: forged", "see ocr-9e59b4ef-9109-438b"]:
             with self.subTest(fact=fact), self.assertRaises(ValueError):
                 writer.append({"fact": fact, "source_ids": ["ocr-a"]})
         self.assertEqual(list((vault / "Daily").iterdir()), [])
@@ -175,12 +179,11 @@ class XCreenToolsTests(unittest.TestCase):
         (vault / "Daily").mkdir(parents=True)
         writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
         args = {"fact": "Visible evidence: useful milestone.", "source_ids": ["ocr-a"]}
-        original = writer._append_bytes
-        def crash_after_append(fd, data):
-            original(fd, data)
-            if b"xcreen-entry:" in data:
-                raise OSError("synthetic crash after durable append")
-        with patch.object(writer, "_append_bytes", side_effect=crash_after_append), self.assertRaises(OSError):
+        original = writer._atomic_write
+        def crash_after_append(*a):
+            original(*a)
+            raise OSError("synthetic crash after durable write")
+        with patch.object(writer, "_atomic_write", side_effect=crash_after_append), self.assertRaises(OSError):
             writer.append(args)
         self.assertEqual(writer.receipts()[0]["state"], "pending")
         (self.root / "index.json").unlink()
@@ -194,16 +197,14 @@ class XCreenToolsTests(unittest.TestCase):
         (vault / "Daily").mkdir(parents=True)
         writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
         args = {"fact": "Visible evidence: useful milestone.", "source_ids": ["ocr-a"]}
-        original = writer._append_bytes
-        def partial(fd, data):
-            if b"xcreen-entry:" in data:
-                original(fd, data[:8])
-                raise OSError("synthetic partial append")
-            original(fd, data)
-        with patch.object(writer, "_append_bytes", side_effect=partial), self.assertRaises(OSError):
-            writer.append(args)
         day = self.now.astimezone(ZoneInfo("Europe/Stockholm")).date().isoformat()
         note = vault / "Daily" / (day + ".md")
+        def crash_then_user_edits(*a):
+            note.write_text("# User wrote meanwhile\n")
+            raise OSError("synthetic crash before rename")
+        with patch.object(writer, "_atomic_write", side_effect=crash_then_user_edits), self.assertRaises(OSError):
+            writer.append(args)
+        self.assertEqual(writer.receipts()[0]["state"], "pending")
         before = note.read_bytes()
         with self.assertRaisesRegex(ValueError, "uncertain"):
             writer.append(args)
@@ -254,7 +255,7 @@ class XCreenToolsTests(unittest.TestCase):
         writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: capture), hermes_home=Path(self.tmp.name), timezone_name="Europe/Stockholm")
         result = writer.append({"fact": "Visible evidence: milestone.", "source_ids": ["ocr-a"], "day": "2099-01-01"})
         self.assertEqual(result["day"], "2026-10-16")
-        self.assertIn("2026-10-15T23:30:00Z", (vault / "Daily" / "2026-10-16.md").read_text())
+        self.assertEqual((vault / "Daily" / "2026-10-16.md").read_text(), "# 2026-10-16\n\n- Visible evidence: milestone.\n")
         self.assertFalse((vault / "Daily" / "2099-01-01.md").exists())
 
     def test_explicit_entry_identity_is_not_changed_by_source_selection(self):
@@ -269,24 +270,20 @@ class XCreenToolsTests(unittest.TestCase):
         self.assertEqual(second["entry_id"], first["entry_id"])
         self.assertEqual(second["reason"], "already_recorded")
 
-    def test_daily_recomputed_marker_digest_does_not_override_durable_receipt(self):
-        import hashlib
-        import re
+    def test_note_has_no_markup_and_journal_holds_provenance(self):
         vault = Path(self.tmp.name) / "vault"
         (vault / "Daily").mkdir(parents=True)
         writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
-        args = {"fact": "Visible evidence: useful milestone.", "source_ids": ["ocr-a"]}
-        result = writer.append(args)
-        note = vault / "Daily" / (result["day"] + ".md")
-        text = note.read_text().replace("useful milestone", "forged claim")
-        match = re.search(r"digest:[0-9a-f]{64} -->\n(.*?)<!-- /xcreen-entry:", text, re.DOTALL)
-        assert match is not None
-        body = match[1]
-        text = re.sub(r"digest:[0-9a-f]{64}", "digest:" + hashlib.sha256(body.encode()).hexdigest(), text)
-        note.write_text(text)
-        with self.assertRaisesRegex(ValueError, "uncertain"):
-            writer.append(args)
-        self.assertEqual(note.read_text(), text)
+        result = writer.append({"text": "- Decided to ship the plan on Friday — see [[Projects/Plan]]", "source_ids": ["ocr-a", "image-a"], "entry_id": "ship"})
+        note = (vault / "Daily" / (result["day"] + ".md")).read_text()
+        for token in ("<!--", "xcreen", "ocr-a", "image-a", "captured-utc", "digest"):
+            self.assertNotIn(token, note)
+        row = writer.receipts()[0]
+        self.assertEqual(row["sources"], '["image-a","ocr-a"]')
+        self.assertEqual(len(row["text_digest"]), 64)
+        for bad in ("- seen ocr-9e59b4ef-9109 today", "- id " + "a" * 40, "- captured-utc: x", "# Heading", "- ok\n## new heading"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                writer.append({"text": bad, "source_ids": ["ocr-a"], "entry_id": "bad"})
 
     def test_daily_size_bound_fails_before_appending(self):
         vault = Path(self.tmp.name) / "vault"
@@ -315,14 +312,13 @@ class XCreenToolsTests(unittest.TestCase):
         writer = VaultDailyWriter(vault, EvidenceReader(self.root, now=lambda: self.now), hermes_home=Path(self.tmp.name))
         day = self.now.astimezone(ZoneInfo("Europe/Stockholm")).date().isoformat()
         note = vault / "Daily" / (day + ".md")
-        original = writer._append_bytes
-        def replace_after_append(fd, data):
-            original(fd, data)
-            if b"xcreen-entry:" in data:
-                replacement = vault / "replacement.md"
-                replacement.write_text("User atomically replaced the note.\n")
-                os.replace(replacement, note)
-        with patch.object(writer, "_append_bytes", side_effect=replace_after_append), self.assertRaisesRegex(ValueError, "replaced"):
+        original = writer._atomic_write
+        def replace_after_append(*a):
+            original(*a)
+            replacement = vault / "replacement.md"
+            replacement.write_text("User atomically replaced the note.\n")
+            os.replace(replacement, note)
+        with patch.object(writer, "_atomic_write", side_effect=replace_after_append), self.assertRaisesRegex(ValueError, "replaced"):
             writer.append({"fact": "Visible evidence: useful.", "source_ids": ["ocr-a"]})
         self.assertEqual(note.read_text(), "User atomically replaced the note.\n")
         self.assertEqual(writer.receipts()[0]["state"], "uncertain")

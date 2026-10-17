@@ -17,12 +17,7 @@ class WriterSecurityTests(unittest.TestCase):
     def test_pending_payload_conflict_cannot_replace_reservation(self):
         writer = self.writer()
         args = {'fact': 'First immutable fact.', 'source_ids': ['ocr-a'], 'entry_id': 'stable'}
-        original = writer._append_bytes
-        def crash(fd, data):
-            if b'xcreen-entry:' in data:
-                raise OSError('crash before append')
-            original(fd, data)
-        with patch.object(writer, '_append_bytes', side_effect=crash), self.assertRaises(OSError):
+        with patch.object(writer, '_atomic_write', side_effect=OSError('crash before write')), self.assertRaises(OSError):
             writer.append(args)
         before = writer.receipts()
         with self.assertRaisesRegex(ValueError, 'conflict'):
