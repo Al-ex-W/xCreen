@@ -56,6 +56,8 @@ import XCreenCore
     private var runtimeSessionID = ""
 
     private var inFlightBatches: Set<String> = []
+    private var retryTimer: Task<Void, Never>?
+    @Published var nextBatchRetry: Date?
     private let defaults: UserDefaults
     private let log = ActivityLog.shared
 
@@ -88,9 +90,12 @@ import XCreenCore
             guard !self.controller.readOnlyConnection else { return }
             Task {
                 if let store = self.evidenceStore {
-                    do { _ = try await self.controller.verifyBatches(launch: self.frozenLaunch(), store: store) }
-                    catch { self.submissionMessage = "Batch receipt verification unavailable; interrupted work remains fenced." }
+                    do {
+                        let requeued = try await self.controller.recoverRetryableBatches(launch: self.frozenLaunch(), store: store)
+                        if requeued > 0 { self.log.write(.batch, "recovered \(requeued) receipt-proven zero-effect batches for retry") }
+                    } catch { self.submissionMessage = "Batch receipt verification unavailable; interrupted work remains fenced." }
                 }
+                if !self.controller.modelPreferenceApplied { self.log.write(.gateway, "xcreen default model not applied: \(self.controller.modelPreferenceStatus)") }
                 await self.submitPendingBatches()
             }
         }
@@ -154,6 +159,12 @@ import XCreenCore
     }
 
     private func applyInventorySelection(_ data: Data) {
+        // model.options reports the profile default on a lazy session; the confirmed per-session
+        // preference is the authoritative xCreen model.
+        if controller.modelPreferenceApplied {
+            selectedHermesModel = "\(controller.modelPreference.provider)::\(controller.modelPreference.model)"
+            return
+        }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let provider = root["provider"] as? String, let model = root["model"] as? String else { return }
         selectedHermesModel = "\(provider)::\(model)"
     }
@@ -251,6 +262,13 @@ import XCreenCore
                 guard let evidenceStore else { throw EvidenceStoreError.invalidInput }
                 // Stable ID/evidence is already durable before this queued turn exists.
                 try await evidenceStore.savePendingBatch(batch)
+                // A gateway exit must not wedge automatic processing until a manual reconnect.
+                // Connecting starts no inference; failure leaves the batch pending, unsent.
+                if !connected {
+                    do { try await connectIfNeeded() } catch { log.write(.error, "batch id=\(batch.id) deferred: gateway unavailable"); return }
+                }
+                // Backed off (e.g. provider rate limit): leave it pending for the retry timer.
+                guard try await evidenceStore.pendingBatches().contains(where: { $0.id == batch.id }) else { scheduleBatchRetry(); return }
                 let binding = BatchBinding(batchID: batch.id, sourceIDs: batch.images.map(\.id) + batch.ocr.map(\.id))
                 try await sessionRuntime.submitAutomatic(manifest: manifest, images: images, binding: binding, prepared: { sessionID in
                     try await evidenceStore.bindBatch(id: batch.id, sessionID: sessionID)
@@ -261,10 +279,15 @@ import XCreenCore
                 })
                 log.write(.batch, "verified processing receipt id=\(batch.id)")
             } catch {
-                // Only work that never crossed the send boundary remains retryable.
-                try? await evidenceStore?.recordBatchFailure(id: batch.id, cancelled: (error as? HermesGatewayError) == .cancelled)
-                log.write(.error, "batch id=\(batch.id) interrupted; inspect durable batch state")
-                submissionMessage = "Automatic batch interrupted. Pending work may retry; ambiguous/admitted work requires receipt verification."
+                // Pre-send work stays retryable. After send, only a provider failure with a
+                // host receipt proving zero effects returns to pending (with backoff).
+                if (error as? EvidenceStoreError) == .deferred { scheduleBatchRetry(); return }
+                try? await evidenceStore?.recordBatchFailure(id: batch.id, cancelled: (error as? HermesGatewayError) == .cancelled, error: error)
+                let state = await evidenceStore?.batchState(id: batch.id)
+                let summary = await batchFailureSummary(error: error, state: state)
+                log.write(.error, "batch id=\(batch.id) \(summary.log)")
+                submissionMessage = summary.message
+                scheduleBatchRetry()
             }
         }
     }
@@ -273,6 +296,39 @@ import XCreenCore
         guard let evidenceStore else { return }
         guard let batches = try? await evidenceStore.pendingBatches() else { return }
         for batch in batches { submit(batch: batch) }
+        scheduleBatchRetry()
+    }
+
+    /// One timer for backed-off work; it re-enters the normal gated submit path only.
+    private func scheduleBatchRetry() {
+        retryTimer?.cancel()
+        retryTimer = Task { [weak self] in
+            guard let self, let store = self.evidenceStore, let due = await store.nextRetryDate() else { return }
+            self.nextBatchRetry = due
+            try? await Task.sleep(for: .seconds(max(1, due.timeIntervalSinceNow + 1)))
+            guard !Task.isCancelled else { return }
+            self.nextBatchRetry = nil
+            guard !self.integrity, self.captureSafe, self.connected else { return }
+            await self.submitPendingBatches()
+        }
+    }
+
+    private func batchFailureSummary(error: Error, state: EvidenceStore.BatchState?) async -> (log: String, message: String) {
+        let reason: String
+        switch error as? HermesGatewayError {
+        case .providerFailure(true)?: reason = "provider rate-limited"
+        case .providerFailure(false)?: reason = "provider failed"
+        default: reason = "interrupted"
+        }
+        switch state {
+        case .pending?:
+            let next = await evidenceStore?.nextRetryDate().map { ISO8601DateFormatter().string(from: $0) } ?? "when due"
+            return ("\(reason); host receipt proves zero effects; retry pending after \(next)", "Automatic batch \(reason). No note effects were recorded; it will retry after backoff (\(next)).")
+        case .deadletter?:
+            return ("\(reason); retry budget exhausted (deadletter)", "Automatic batch \(reason) repeatedly and was deadlettered; no blind resend.")
+        default:
+            return ("\(reason); effects present or unknown; state=\(state?.rawValue ?? "unknown") (inspect durable batch state)", "Automatic batch \(reason). Effects may exist, so it stays uncertain; run receipt verification.")
+        }
     }
 
     /// Resolves `xcreen-image:<id>` references through the evidence store only.
@@ -310,6 +366,19 @@ import XCreenCore
             batchCursor = rows.last?.id ?? ""
             let data = try JSONEncoder().encode(rows)
             return .ok(snapshot(), reply: String(data: data, encoding: .utf8))
+        case .retrybatches:
+            guard let evidenceStore else { throw LocalControlError.unavailable("evidence store unavailable") }
+            let count = try await controller.recoverRetryableBatches(launch: frozenLaunch(), store: evidenceStore)
+            batchMetadata = "Re-queued \(count) batches whose host receipt proves zero effects. Batches with effects or unknown effects stay uncertain."
+            if !integrity && captureSafe { await submitPendingBatches() }
+            return .ok(snapshot(), reply: batchMetadata)
+        case .modeldefault:
+            if let provider = command.provider, let model = command.model {
+                try await controller.setDefaultModel(.init(provider: provider, model: model))
+                if controller.modelPreferenceApplied { selectedHermesModel = "\(provider)::\(model)" }
+            } else if command.provider != nil || command.model != nil { throw LocalControlError.invalidRequest("model default needs PROVIDER and MODEL") }
+            let preference = controller.modelPreference
+            return .ok(snapshot(), reply: "xCreen default: \(preference.provider) · \(preference.model) — \(controller.modelPreferenceStatus)")
         case .verify:
             guard let evidenceStore else { throw LocalControlError.unavailable("evidence store unavailable") }
             let count = try await controller.verifyBatches(launch: frozenLaunch(), store: evidenceStore)
@@ -413,10 +482,18 @@ import XCreenCore
         result.sessionVisible = controller.sessionVisible
         result.actualSessionVisible = controller.actualSessionVisible
         result.sessionVisibilityPending = controller.visibilityPending
+        result.defaultModel = LocalControlModel(provider: controller.modelPreference.provider, model: controller.modelPreference.model)
+        result.defaultModelApplied = controller.modelPreferenceApplied
+        result.defaultModelStatus = controller.modelPreferenceStatus
+        result.nextBatchRetry = nextBatchRetry
         return result
     }
     var sessionVisible: Bool { controller.sessionVisible }
     var visibilityStatus: String { controller.visibilityPending ? "Saved preference; pending gateway confirmation." : "Confirmed by Hermes for this session." }
+    var modelDefaultStatus: String {
+        let preference = controller.modelPreference
+        return "xCreen default: \(preference.provider) · \(preference.model). \(controller.modelPreferenceStatus)"
+    }
 }
 
 @MainActor private final class TurnCompletion { var done = false; var error: Error?; var reply: String? }
@@ -463,6 +540,9 @@ struct Panel: View {
                 }
 
                 .accessibilityHint("Uses Hermes's provider-aware inventory and changes only the xCreen session.")
+                Text("Your choice becomes the xCreen default and is reapplied on reconnect; Hermes's global default is unchanged. Recommended: Claude Haiku 5.5 (fast and inexpensive for five-minute batches).")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(state.modelDefaultStatus).font(.caption).foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -506,7 +586,8 @@ struct Panel: View {
                     Button("Next page") { state.runControl(["command": "batches", "value": state.batchCursor]) }.disabled(state.batchCursor.isEmpty)
                 }
                 ScrollView { Text(state.batchMetadata).font(.caption).textSelection(.enabled) }.frame(maxHeight: 100)
-                Text("Transport completion is not verified processing. Uncertain batches are never retried automatically.").font(.caption).foregroundStyle(.secondary)
+                Button("Retry zero-effect batches") { state.runControl(["command": "retrybatches"]) }
+                Text("Transport completion is not verified processing. A provider failure is retried with backoff only when the host receipt proves zero note effects; batches with effects or unknown effects stay uncertain.").font(.caption).foregroundStyle(.secondary)
             }
 
             DisclosureGroup("Local settings", isExpanded: $state.showSettings) {

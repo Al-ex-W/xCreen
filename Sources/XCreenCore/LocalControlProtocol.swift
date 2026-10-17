@@ -9,7 +9,7 @@ public enum LocalControlProtocol {
 }
 
 public enum LocalControlCommandName: String, Codable, Sendable {
-    case status, integrity, visibility, connect, disconnect, reconnect, models, model, settings, autodetect, ask, cancel, history, batches, verify, images, panel, quit
+    case status, integrity, visibility, connect, disconnect, reconnect, models, model, modeldefault, retrybatches, settings, autodetect, ask, cancel, history, batches, verify, images, panel, quit
 }
 
 public struct LocalControlCommand: Codable, Sendable {
@@ -63,6 +63,11 @@ public struct LocalControlSnapshot: Codable, Equatable, Sendable {
     public var sessionVisible: Bool = false
     public var actualSessionVisible: Bool? = nil
     public var sessionVisibilityPending: Bool = true
+    /// xCreen-only default (provider/model) and whether Hermes confirmed it for this session.
+    public var defaultModel: LocalControlModel? = nil
+    public var defaultModelApplied: Bool = false
+    public var defaultModelStatus: String = ""
+    public var nextBatchRetry: Date? = nil
     public let app: String; public let connected: Bool; public let integrity: Bool; public let capture: String
     /// This is returned only to an explicit foreground CLI caller, never written to logs.
     public let message: String; public let models: [LocalControlModel]; public let currentModel: LocalControlModel?; public let settings: LocalControlSettings; public let images: [LocalControlImage]

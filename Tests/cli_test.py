@@ -42,6 +42,21 @@ class CLITests(unittest.TestCase):
             self.assertEqual(cli.parse_command([name, '--after', 'stable-cursor']), {'command': name, 'value': 'stable-cursor'})
             self.assertRaises(ValueError, cli.parse_command, [name, '--after'])
 
+    def test_model_default_and_batch_retry_parser(self):
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        assert spec is not None
+        cli = importlib.util.module_from_spec(spec)
+        loader.exec_module(cli)
+        self.assertEqual(cli.parse_command(['model', 'default']), {'command': 'modeldefault'})
+        self.assertEqual(cli.parse_command(['model', 'default', 'get']), {'command': 'modeldefault'})
+        self.assertEqual(cli.parse_command(['model', 'default', 'openrouter', 'anthropic/claude-haiku-5.5']),
+                         {'command': 'modeldefault', 'provider': 'openrouter', 'model': 'anthropic/claude-haiku-5.5'})
+        self.assertEqual(cli.parse_command(['model', 'select', 'copilot', 'claude-haiku-5.5']),
+                         {'command': 'model', 'provider': 'copilot', 'model': 'claude-haiku-5.5'})
+        self.assertEqual(cli.parse_command(['batches', 'retry']), {'command': 'retrybatches'})
+        for args in (['model', 'default', 'openrouter'], ['batches', 'retry', '--all']):
+            self.assertRaises(ValueError, cli.parse_command, args)
+
     def test_verify_is_one_readonly_control_request(self):
         from unittest.mock import patch
         spec = importlib.util.spec_from_loader(loader.name, loader)

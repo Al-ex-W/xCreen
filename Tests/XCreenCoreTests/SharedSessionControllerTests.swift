@@ -2,6 +2,57 @@ import XCTest
 @testable import XCreenCore
 
 @MainActor final class SharedSessionControllerTests: XCTestCase {
+    func testDefaultModelAppliedOnConnectAndPickerPersistsOnResume() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let gateway = ControlledGateway()
+        await gateway.offer(["openai-codex": ["gpt-6.1-sol-900k"], "openrouter": ["anthropic/claude-haiku-5.5"], "copilot": ["claude-haiku-5.5"]], current: "openai-codex::gpt-6.1-sol-900k")
+        let controller = SharedSessionController(gateway: gateway, records: ControllerRecords(), defaults: defaults)
+        XCTAssertEqual(controller.modelPreference, .builtIn)
+        var ready: Data?
+        controller.connectionReady = { _, inventory in ready = inventory }
+        let launch = HermesGatewayLaunch.command(executable: "/usr/bin/true", arguments: [])
+        try await controller.connect(launch: launch)
+        let initial = await gateway.modelCalls
+        XCTAssertEqual(initial, ["openrouter::anthropic/claude-haiku-5.5"], "session-scoped switch only")
+        XCTAssertTrue(controller.modelPreferenceApplied)
+        let readyRoot = try XCTUnwrap(try JSONSerialization.jsonObject(with: XCTUnwrap(ready)) as? [String: Any])
+        XCTAssertEqual(readyRoot["provider"] as? String, "openrouter", "tray receives the post-switch inventory")
+        try await controller.switchModel(model: "claude-haiku-5.5", provider: "copilot") {}
+        XCTAssertEqual(defaults.string(forKey: "xcreen.hermes.model.provider"), "copilot")
+        XCTAssertEqual(defaults.string(forKey: "xcreen.hermes.model.id"), "claude-haiku-5.5")
+        await controller.disconnect()
+        let restored = SharedSessionController(gateway: gateway, records: ControllerRecords(), defaults: defaults)
+        XCTAssertEqual(restored.modelPreference, XCreenModelPreference(provider: "copilot", model: "claude-haiku-5.5"))
+        try await restored.connect(launch: launch)
+        let calls = await gateway.modelCalls
+        XCTAssertEqual(calls, ["openrouter::anthropic/claude-haiku-5.5", "copilot::claude-haiku-5.5", "copilot::claude-haiku-5.5"])
+        await restored.disconnect()
+    }
+
+    func testUnavailableDefaultIsReportedWithoutFallbackAndCLIDefaultValidatesInventory() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let gateway = ControlledGateway()
+        await gateway.offer(["openai-codex": ["gpt-6.1-sol-900k"], "copilot": ["claude-haiku-5.5"]], current: "openai-codex::gpt-6.1-sol-900k")
+        let controller = SharedSessionController(gateway: gateway, records: ControllerRecords(), defaults: defaults)
+        try await controller.connect(launch: .command(executable: "/usr/bin/true", arguments: []))
+        var calls = await gateway.modelCalls
+        XCTAssertEqual(calls, [], "never silently substitute another provider")
+        XCTAssertFalse(controller.modelPreferenceApplied)
+        XCTAssertTrue(controller.modelPreferenceStatus.contains("Unavailable"))
+        XCTAssertTrue(controller.modelPreferenceStatus.contains("copilot · claude-haiku-5.5"), "names the configured alternative")
+        do { try await controller.setDefaultModel(.init(provider: "nowhere", model: "x")); XCTFail("unknown route accepted") } catch {}
+        XCTAssertNil(defaults.string(forKey: "xcreen.hermes.model.provider"))
+        try await controller.setDefaultModel(.init(provider: "copilot", model: "claude-haiku-5.5"))
+        calls = await gateway.modelCalls
+        XCTAssertEqual(calls, ["copilot::claude-haiku-5.5"])
+        XCTAssertTrue(controller.modelPreferenceApplied)
+        XCTAssertEqual(defaults.string(forKey: "xcreen.hermes.model.id"), "claude-haiku-5.5")
+        await controller.disconnect()
+        try await controller.setDefaultModel(.init(provider: "openrouter", model: "anthropic/claude-haiku-5.5"))
+        XCTAssertEqual(defaults.string(forKey: "xcreen.hermes.model.provider"), "openrouter", "offline default is saved for next connect")
+        XCTAssertFalse(controller.modelPreferenceApplied)
+    }
+
     func testVisibilityFailedRPCLeavesSavedIntentPendingUntilReconnect() async throws {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         let gateway = ControlledGateway()
@@ -380,6 +431,7 @@ private actor ControlledGateway: HermesGatewayTransport {
     func releaseStart() { startWaiter?.resume(); startWaiter = nil }
     func waitForStarts(_ count: Int) async { while operations.filter({ $0.hasPrefix("start:") }).count < count { await Task.yield() } }
     func start(launch: HermesGatewayLaunch) async throws {
+        currentModel = initialModel // a fresh gateway resumes on the profile default
         if case .command(_, let args, _) = launch { operations.append("start:" + (args.first ?? "")) }
         if failStart { failStart = false; throw HermesGatewayError.invalidLaunch }
         if held { held = false; await withCheckedContinuation { startWaiter = $0 } }
@@ -388,8 +440,19 @@ private actor ControlledGateway: HermesGatewayTransport {
     func events() async -> AsyncStream<HermesGatewayEvent> { let pair = AsyncStream<HermesGatewayEvent>.makeStream(); streams.append(pair.continuation); return pair.stream }
     func gatewayCapabilities() async throws -> HermesGatewayCapabilities { .init(perSessionExclusiveSubmit: true) }
     func open(storedSessionID: String?) async throws -> HermesSessionIdentity { openRequests.append(storedSessionID); return .init(storedID: "synthetic", runtimeID: "synthetic-runtime") }
-    func models(sessionID: String) async throws -> Data { if holdModels { holdModels = false; await withCheckedContinuation { modelWaiter = $0 } }; return Data("{\"providers\":[]}".utf8) }
-    func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { Data() }
+    private var offered: [String: [String]] = [:]
+    private var initialModel = ""
+    private var currentModel = ""
+    var modelCalls: [String] = []
+    func offer(_ routes: [String: [String]], current: String) { offered = routes; initialModel = current; currentModel = current }
+    func models(sessionID: String) async throws -> Data {
+        if holdModels { holdModels = false; await withCheckedContinuation { modelWaiter = $0 } }
+        let parts = currentModel.components(separatedBy: "::")
+        var root: [String: Any] = ["providers": offered.keys.sorted().map { ["slug": $0, "models": offered[$0]!] }]
+        if parts.count == 2 { root["provider"] = parts[0]; root["model"] = parts[1] }
+        return try JSONSerialization.data(withJSONObject: root)
+    }
+    func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { modelCalls.append("\(provider)::\(model)"); currentModel = "\(provider)::\(model)"; return Data() }
     func compress(sessionID: String) async throws -> Data { if holdCompression { holdCompression = false; await withCheckedContinuation { compressionWaiter = $0 } }; return Data() }
     func manualContext(sessionID: String) async throws {}
     func submit(sessionID: String, text: String) async throws -> Data { submitCount += 1; return Data() }

@@ -1,5 +1,15 @@
 import Foundation
 
+/// xCreen-owned model preference. Applied only to the dedicated xCreen session through
+/// the session-scoped switch; Hermes global config and profiles are never touched.
+public struct XCreenModelPreference: Codable, Equatable, Sendable {
+    public let provider: String; public let model: String
+    public init(provider: String, model: String) { self.provider = provider; self.model = model }
+    public var id: String { "\(provider)::\(model)" }
+    /// Cheap, fast default for automatic five-minute batches.
+    public static let builtIn = XCreenModelPreference(provider: "openrouter", model: "anthropic/claude-haiku-5.5")
+}
+
 /// Shared native action owner. Lifecycle operations are FIFO transactions, including
 /// every await. Integrity uses a separate lane so a slow connection cannot delay pause.
 @MainActor public final class SharedSessionController {
@@ -23,11 +33,19 @@ import Foundation
     public private(set) var actualSessionVisible: Bool?
     public var visibilityChanged: (@MainActor () -> Void)?
     public var visibilityPending: Bool { actualSessionVisible != sessionVisible }
+    public private(set) var modelPreference: XCreenModelPreference
+    /// Human-readable; "applied" only after the host inventory confirmed the route.
+    public private(set) var modelPreferenceStatus = "Not applied yet; waiting for the xCreen session."
+    public private(set) var modelPreferenceApplied = false
+    static let modelProviderKey = "xcreen.hermes.model.provider", modelIDKey = "xcreen.hermes.model.id"
 
     public init(gateway: any HermesGatewayTransport, records: HermesSessionRecordStore = UserDefaultsHermesSessionRecordStore(), defaults: UserDefaults = .standard) {
         self.gateway = gateway
         self.defaults = defaults
         sessionVisible = defaults.object(forKey: "xcreen.hermes.sessionVisible") as? Bool ?? false
+        if let provider = defaults.string(forKey: Self.modelProviderKey), let model = defaults.string(forKey: Self.modelIDKey), !provider.isEmpty, !model.isEmpty {
+            modelPreference = XCreenModelPreference(provider: provider, model: model)
+        } else { modelPreference = .builtIn }
         runtime = HermesSessionRuntime(gateway: gateway, records: records)
     }
     deinit { observer?.cancel() }
@@ -105,36 +123,110 @@ import Foundation
             try apply(data)
         }.value
     }
+    /// Picker/CLI selection: switch the xCreen session, then persist it as the xCreen default.
     public func switchModel(model: String, provider: String, apply: @escaping @MainActor () -> Void) async throws {
         try await ordered {
             guard self.connected else { throw HermesGatewayError.unavailable }
             let token = self.generation
             try await self.runtime.switchModel(model: model, provider: provider)
             guard self.connected, self.generation == token else { throw HermesGatewayError.unavailable }
+            self.persistModelPreference(XCreenModelPreference(provider: provider, model: model))
+            self.modelPreferenceApplied = true
+            self.modelPreferenceStatus = "Applied to the xCreen session."
             apply()
         }.value
     }
-    public func verifyBatches(launch: HermesGatewayLaunch, store: EvidenceStore) async throws -> Int {
+    /// `xcreen model default PROVIDER MODEL`. Offline, the preference is saved and applied
+    /// on the next connect; connected, it must exist in the live inventory or is rejected.
+    public func setDefaultModel(_ preference: XCreenModelPreference) async throws {
         try await ordered {
-            self.readOnlyConnection = true
-            defer { self.readOnlyConnection = false }
-            try await self.connectLocked(launch: launch)
-            var verified = 0
-            var failure: Error?
-            for binding in await store.batchBindings() {
-                guard let sessionID = binding.sessionID else { continue }
-                do {
-                    let receipt = try await self.runtime.readReceipt(binding: binding, sessionID: sessionID)
-                    try await store.reconcile(receipt)
-                    if receipt.completesProcessing { verified += 1 }
-                } catch {
-                    try await store.invalidateReceipt(id: binding.batchID)
-                    failure = error
-                }
+            guard self.connected else {
+                self.persistModelPreference(preference)
+                self.modelPreferenceApplied = false
+                self.modelPreferenceStatus = "Saved; will be applied to the xCreen session on connect."
+                return
             }
-            if let failure { throw failure }
-            return verified
+            let token = self.generation
+            let inventory = try await self.runtime.modelOptions()
+            guard self.generation == token else { throw HermesGatewayError.unavailable }
+            guard (try HermesModelRoute.decodeInventory(inventory)).contains(where: { $0.provider == preference.provider && $0.model == preference.model }) else {
+                throw HermesGatewayError.remoteFailure("\(preference.provider) · \(preference.model) is not in Hermes's configured model inventory; default unchanged")
+            }
+            self.persistModelPreference(preference)
+            _ = await self.applyModelPreferenceLocked(inventory: inventory, token: token)
         }.value
+    }
+    private func persistModelPreference(_ preference: XCreenModelPreference) {
+        modelPreference = preference
+        defaults.set(preference.provider, forKey: Self.modelProviderKey)
+        defaults.set(preference.model, forKey: Self.modelIDKey)
+    }
+    /// Resolve the preference against live `model.options`; never substitute another route.
+    private func applyModelPreferenceLocked(inventory: Data, token: UInt64) async -> Data {
+        let preference = modelPreference
+        modelPreferenceApplied = false
+        guard let routes = try? HermesModelRoute.decodeInventory(inventory) else {
+            modelPreferenceStatus = "Unavailable: Hermes model inventory could not be read; session model unchanged."
+            return inventory
+        }
+        guard routes.contains(where: { $0.provider == preference.provider && $0.model == preference.model }) else {
+            let leaf = preference.model.split(separator: "/").last.map(String.init) ?? preference.model
+            let alternatives = routes.filter { $0.model.hasSuffix(leaf) }.map { "\($0.provider) · \($0.model)" }
+            modelPreferenceStatus = "Unavailable: \(preference.provider) · \(preference.model) is not in Hermes's configured inventory; session model unchanged (no fallback)." + (alternatives.isEmpty ? "" : " Configured alternatives: \(alternatives.prefix(3).joined(separator: ", ")).")
+            return inventory
+        }
+        let root = try? JSONSerialization.jsonObject(with: inventory) as? [String: Any]
+        if root?["provider"] as? String == preference.provider, root?["model"] as? String == preference.model {
+            modelPreferenceApplied = true; modelPreferenceStatus = "Applied to the xCreen session."
+            return inventory
+        }
+        do {
+            try await runtime.switchModel(model: preference.model, provider: preference.provider)
+            guard generation == token else { return inventory }
+            // The gateway already verified Hermes's session-scoped ack. model.options can't confirm it:
+            // on a lazy session without a live agent it reports the profile default, not the override.
+            modelPreferenceApplied = true; modelPreferenceStatus = "Applied to the xCreen session."
+            return (try? await runtime.modelOptions()) ?? inventory
+        } catch {
+            modelPreferenceStatus = "Switch to \(preference.provider) · \(preference.model) failed: \(error.localizedDescription)"
+            return inventory
+        }
+    }
+    public func verifyBatches(launch: HermesGatewayLaunch, store: EvidenceStore) async throws -> Int {
+        try await ordered { try await self.verifyBatchesLocked(launch: launch, store: store) }.value
+    }
+    /// Startup and `xcreen batches retry`: verify, then return only receipt-proven
+    /// effect-free, non-terminal uncertain batches to pending. Never submits inference
+    /// itself and never touches batches with effects, unknown effects or old hosts.
+    public func recoverRetryableBatches(launch: HermesGatewayLaunch, store: EvidenceStore) async throws -> Int {
+        try await ordered {
+            var failure: Error?
+            do { _ = try await self.verifyBatchesLocked(launch: launch, store: store) } catch { failure = error }
+            var requeued = 0
+            for id in await store.uncertainBatchIDs().sorted() where try await store.requeueRetrySafe(id: id) { requeued += 1 }
+            if let failure, requeued == 0 { throw failure }
+            return requeued
+        }.value
+    }
+    private func verifyBatchesLocked(launch: HermesGatewayLaunch, store: EvidenceStore) async throws -> Int {
+        readOnlyConnection = true
+        defer { readOnlyConnection = false }
+        try await connectLocked(launch: launch)
+        var verified = 0
+        var failure: Error?
+        for binding in await store.batchBindings() {
+            guard let sessionID = binding.sessionID else { continue }
+            do {
+                let receipt = try await runtime.readReceipt(binding: binding, sessionID: sessionID)
+                try await store.reconcile(receipt)
+                if receipt.completesProcessing { verified += 1 }
+            } catch {
+                try await store.invalidateReceipt(id: binding.batchID)
+                failure = error
+            }
+        }
+        if let failure { throw failure }
+        return verified
     }
     public func historyPage(launch: HermesGatewayLaunch, cursor: String? = nil) async throws -> Data {
         try await ordered {
@@ -189,7 +281,10 @@ import Foundation
                 self.generation &+= 1
                 self.publishConnection(false)
             }
-            let inventory = try await runtime.modelOptions()
+            var inventory = try await runtime.modelOptions()
+            guard generation == token else { throw HermesGatewayError.unavailable }
+            // Before connectionReady: pending automatic work must run on the xCreen default.
+            inventory = await applyModelPreferenceLocked(inventory: inventory, token: token)
             let identity = await runtime.currentSession()
             guard generation == token, let identity else { throw HermesGatewayError.unavailable }
             publishConnection(true)
@@ -201,6 +296,7 @@ import Foundation
     }
     private func disconnectLocked() async {
         generation &+= 1
+        modelPreferenceApplied = false
         observer?.cancel(); observer = nil
         publishConnection(false)
         await runtime.disconnect()
