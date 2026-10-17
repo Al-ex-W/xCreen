@@ -169,26 +169,48 @@ public actor HermesSessionRuntime {
             if let object = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any], let payload = object["payload"] as? [String: Any] { currentOutput += payload["text"] as? String ?? "" }
         case "session.info":
             if let object = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any], let payload = object["payload"] as? [String: Any], let usage = payload["usage"] as? [String: Any] { updateContextUsage(tokens: usage["context_used"] as? Int ?? 0, limit: usage["context_max"] as? Int) }
-        case "message.complete", "run.completed", "turn.completed":
-            if let object = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any], let payload = object["payload"] as? [String: Any], let text = payload["text"] as? String, !text.isEmpty { currentOutput = text }
+        case "message.complete", "run.completed", "turn.completed", "message.failed", "run.failed", "turn.failed", "error":
+            let payload = (try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any])?["payload"] as? [String: Any]
+            let failure = Self.providerFailure(type: event.type, payload: payload)
+            if failure == nil, let text = payload?["text"] as? String, !text.isEmpty { currentOutput = text }
             if currentCancelled || (current?.kind == .automatic && (integrity || current?.integrityEpoch != integrityEpoch)) { finishCurrent(HermesGatewayError.cancelled) }
             else if let turn = current, let binding = turn.binding, let sessionID = session?.runtimeSessionID {
                 guard reconcilingTurn != turn.id else { return }
                 reconcilingTurn = turn.id
                 Task {
                     do {
+                        // Even a failed turn may have produced effects before failing:
+                        // reconcile the host receipt before classifying the failure.
                         let receipt = try await self.readReceipt(binding: binding, sessionID: sessionID)
                         guard self.current?.id == turn.id else { return }
                         try await turn.receiptChanged?(receipt)
                         guard self.current?.id == turn.id else { return }
-                        self.finishCurrent(receipt.completesProcessing ? nil : HermesGatewayError.remoteFailure("batch processing receipt missing or uncertain"))
+                        if receipt.completesProcessing { self.finishCurrent(nil) }
+                        else { self.finishCurrent(failure ?? HermesGatewayError.remoteFailure("batch processing receipt missing or uncertain")) }
                     } catch { if self.current?.id == turn.id { self.finishCurrent(error) } }
                 }
-            } else { finishCurrent(nil) }
-        case "message.failed", "run.failed", "turn.failed", "error": finishCurrent(HermesGatewayError.remoteFailure("turn failed"))
+            } else if let failure, current?.kind == .automatic { finishCurrent(failure) }
+            else if failure != nil, event.type != "message.complete" { finishCurrent(HermesGatewayError.remoteFailure("turn failed")) }
+            else {
+                // Manual error completions keep Hermes's explanatory text as the answer.
+                if let text = payload?["text"] as? String, !text.isEmpty { currentOutput = text }
+                finishCurrent(nil)
+            }
         case "message.cancelled", "run.cancelled", "turn.cancelled", "session.interrupted": finishCurrent(HermesGatewayError.cancelled)
         default: break
         }
+    }
+    /// Classify host terminal frames. Stock Hermes closes provider errors with
+    /// `message.complete {status:"error", error_surface:{code,...}}`.
+    static func providerFailure(type: String, payload: [String: Any]?) -> HermesGatewayError? {
+        let failed = ["message.failed", "run.failed", "turn.failed", "error"].contains(type) || payload?["status"] as? String == "error"
+        guard failed else { return nil }
+        let surface = payload?["error_surface"] as? [String: Any]
+        let code = (surface?["code"] as? String ?? "").lowercased()
+        let text = ((payload?["error"] as? String ?? "") + " " + (payload?["failure_reason"] as? String ?? "")).lowercased()
+        let limited = ["rate_limit", "upstream_rate_limit", "rate_limited"].contains(code)
+            || ["429", "rate limit", "rate-limit", "usage limit", "too many requests"].contains { text.contains($0) }
+        return .providerFailure(rateLimited: limited)
     }
     private func finishCurrent(_ error: Error?) {
         guard let turn = current else { return }; current = nil
