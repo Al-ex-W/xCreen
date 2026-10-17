@@ -35,7 +35,11 @@ public enum XCreenPrompts {
     concrete and specific. Use [[wikilinks]] to existing notes for people, projects, organisations and concepts \
     (check names with xcreen_vault_list; do not invent links). Add a time only when it matters (e.g. "~11:25"). \
     No narration such as "Screen shows", "The user was viewing" or "On screen"; no hedging boilerplate such as \
-    "not independently verified". If something is only a proposal or draft, say so in plain words ("proposed", "draft").
+    "not independently verified". If something is only a proposal or draft, say so in plain words ("proposed", "draft"). \
+    State the takeaway itself, not how you saw it: never "appears to", "it looks like", "seems", "a message about". \
+    Lead with the fact; the source goes last and only if useful, in a few words. \
+    Bad: "The screen appears to show the user browsing Discord; a chat message seems to mention a master's thesis from CAIS." \
+    Good: "- [[Aixia]] offers a master's thesis on synthetic data via CAIS, apply by 22 Oct (found in the CAIS Discord)."
     4. No HTML comments, no markup tags, no ids or hashes: never write evidence ids, entry ids, "captured-utc" \
     or source lists into notes. xCreen records provenance privately.
     5. Prefer revising over repeating: if the Daily note or xcreen_recent_writes already has a bullet about the same thing, call \

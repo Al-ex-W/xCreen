@@ -31,7 +31,7 @@ final class XCreenPromptsTests: XCTestCase {
 
     func testNotePromptForbidsMarkupAndActivityLogging() {
         let rules = XCreenPrompts.noteStyle
-        for phrase in ["No HTML comments", "never write evidence ids", "Do not log apps, sites or pages", "Screen shows", "Prefer revising"] {
+        for phrase in ["No HTML comments", "never write evidence ids", "Do not log apps, sites or pages", "Screen shows", "Prefer revising", "State the takeaway itself", "appears to"] {
             XCTAssertTrue(rules.contains(phrase), phrase)
         }
     }
