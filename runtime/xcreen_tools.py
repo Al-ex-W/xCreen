@@ -590,7 +590,8 @@ class VaultDailyWriter:
                     if prior:
                         db.execute("UPDATE entries SET state = 'uncertain' WHERE id = ?", (marker,))
                     else:
-                        db.execute("INSERT INTO entries (id, day, digest, state) VALUES (?, ?, ?, 'uncertain')", (marker, day, digest))
+                        # Bind to the batch: an unledgered marker is still an effect that forbids replay.
+                        db.execute("INSERT INTO entries (id, day, digest, state, sources, batch) VALUES (?, ?, ?, 'uncertain', ?, ?)", (marker, day, digest, frozen_sources, batch_id))
                     db.commit()
                     raise ValueError("daily entry uncertain: marker incomplete, edited or missing; manual reconciliation required")
                 if len(existing.encode()) + len(entry.encode()) > 2_000_000:

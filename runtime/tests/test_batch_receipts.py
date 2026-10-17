@@ -18,6 +18,68 @@ class BatchReceiptTests(unittest.TestCase):
         self.writer = VaultDailyWriter(vault, self.reader, hermes_home=self.root.parent)
         self.service = BatchReceipts(self.reader, self.writer)
 
+    def test_zero_effect_receipt_explicitly_authorizes_retry_only_without_terminal(self):
+        self.setup_service()
+        params = dict(session_id='session-a', batch_id='batch-a', source_ids=['ocr-a'])
+        self.assertFalse(self.service.receipt(params).get('retry_safe', False))
+        self.service.prepare(params)
+        self.assertIs(self.service.receipt(params).get('retry_safe'), True)
+        self.service.append({'entry_id':'fact','fact':'Useful.','source_ids':['ocr-a']}, 'session-a', 'turn-a')
+        self.assertFalse(self.service.receipt(params).get('retry_safe', False))
+
+    def test_zero_effect_retry_may_rebind_new_session_but_effects_or_terminal_block(self):
+        self.setup_service()
+        params = dict(session_id='session-a', batch_id='batch-a', source_ids=['ocr-a'])
+        self.service.prepare(params)
+        moved = dict(params, session_id='session-b')
+        self.assertEqual(self.service.prepare(moved)['session_id'], 'session-b')
+        with self.assertRaises(ValueError):
+            self.service.receipt(params)  # old binding no longer authoritative
+        self.assertIs(self.service.receipt(moved)['retry_safe'], True)
+        self.service.append({'entry_id':'fact','fact':'Useful.','source_ids':['ocr-a']}, 'session-b', 'turn-b')
+        with self.assertRaises(ValueError):
+            self.service.prepare(dict(params, session_id='session-c'))
+
+    def test_effect_free_retry_on_same_session_gets_fresh_turn_pin(self):
+        self.setup_service()
+        params = dict(session_id='session-a', batch_id='batch-a', source_ids=['ocr-a'])
+        self.service.prepare(params)
+        with self.assertRaises(ValueError):  # failed turn pinned the context but wrote nothing
+            self.service.result({'outcome':'saved','effect_ids':[]}, 'session-a', 'turn-failed')
+        self.assertIs(self.service.receipt(params)['retry_safe'], True)
+        self.service.prepare(params)
+        written = self.service.append({'entry_id':'fact','fact':'Useful.','source_ids':['ocr-a']}, 'session-a', 'turn-retry')
+        self.assertTrue(written['written'])
+        self.service.prepare(params)  # effects exist: the pin must not be reset again
+        with self.assertRaises(ValueError):
+            self.service.append({'entry_id':'other','fact':'Other.','source_ids':['ocr-a']}, 'session-a', 'turn-third')
+
+    def test_terminal_receipt_never_authorizes_retry(self):
+        self.setup_service()
+        params = dict(session_id='session-a', batch_id='batch-a', source_ids=['ocr-a'])
+        self.service.prepare(params)
+        self.service.result({'outcome':'skipped','reason':'no_useful_fact','effect_ids':[]}, 'session-a','turn-a')
+        self.assertNotIn('retry_safe', self.service.receipt(params))
+
+    def test_conflicting_unbound_effect_row_still_blocks_batch_retry(self):
+        # An edited/partial block found without a ledger row is still a batch effect.
+        self.setup_service()
+        params = dict(session_id='session-a', batch_id='batch-a', source_ids=['ocr-a'])
+        self.service.prepare(params)
+        effect = self.service.append({'entry_id':'fact','fact':'Useful.','source_ids':['ocr-a']}, 'session-a', 'turn-a')
+        note = self.writer.vault/'Daily'/(effect['day']+'.md')
+        note.write_text(note.read_text().replace('Useful.', 'User edited.'))
+        db = self.writer._receipts_db()
+        try:
+            db.execute('DELETE FROM entries'); db.commit()
+        finally:
+            db.close()
+        with self.assertRaises(ValueError):
+            self.service.append({'entry_id':'fact','fact':'Useful.','source_ids':['ocr-a']}, 'session-a', 'turn-a')
+        receipt = self.service.receipt(params)
+        self.assertEqual(len(receipt['effects']), 1)
+        self.assertFalse(receipt.get('retry_safe', False))
+
     def test_host_binding_rejects_spoof_and_out_of_batch_sources(self):
         self.setup_service()
         params = dict(session_id='session-a', batch_id='batch-a', source_ids=['ocr-a'])
