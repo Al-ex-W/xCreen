@@ -42,6 +42,26 @@ struct OpenXCreenIntent: AppIntent {
     }
 }
 
+/// Spotlight's "Search in Apps" fallback. Conforming to `ShowInAppSearchResultsIntent` with the
+/// `.general` scope makes the system offer a "Search xCreen" row for any typed query, passing the
+/// text as `criteria.term`. It uses the same bounded `xcreen://ask` handoff: fills, never submits.
+@available(macOS 26.0, *)
+struct SearchXCreenIntent: ShowInAppSearchResultsIntent {
+    static let title: LocalizedStringResource = "Ask xCreen"
+    static let description = IntentDescription(
+        "Opens the xCreen panel with your Spotlight text filled in as a question, ready to send."
+    )
+    static let searchScopes: [StringSearchScope] = [.general]
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Criteria", description: "The text to ask xCreen about.")
+    var criteria: StringSearchCriteria
+
+    func perform() async throws -> some IntentResult & OpensIntent {
+        .result(opensIntent: OpenURLIntent(AskShortcut.searchURL(term: criteria.term)))
+    }
+}
+
 /// App Shortcuts are what Spotlight on macOS 26+ offers as the app's ready-made actions. Every phrase
 /// must contain the app name. A String parameter cannot appear in a phrase, so Spotlight/Shortcuts
 /// prompts for `question` using its requestValueDialog.

@@ -18,6 +18,14 @@ final class AskHandoffTests: XCTestCase {
         XCTAssertEqual(AskShortcut.query(url)?.unicodeScalars.count, 8_000)
     }
 
+    func testSpotlightSearchTermFillsQuestionOrJustOpensPanel() throws {
+        let term = "invoice from acme 1+1"
+        XCTAssertEqual(PanelHandoff(url: AskShortcut.searchURL(term: term)), .ask(term))
+        XCTAssertEqual(AskShortcut.searchURL(term: " \n"), AskShortcut.openURL)
+        let long = AskShortcut.searchURL(term: String(repeating: "y", count: 9_000))
+        XCTAssertEqual(AskShortcut.query(long)?.unicodeScalars.count, 8_000)
+    }
+
     func testOpenURLAndUnknownURLs() {
         XCTAssertEqual(PanelHandoff(url: AskShortcut.openURL), .open)
         XCTAssertEqual(PanelHandoff(url: URL(string: "XCREEN://open")!), .open)

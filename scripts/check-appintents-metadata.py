@@ -9,6 +9,8 @@ import pathlib
 import sys
 
 REQUIRED_ACTION = 'AskXCreenIntent'
+SEARCH_ACTION = 'SearchXCreenIntent'
+SEARCH_PROTOCOL = 'com.apple.link.systemProtocol.ShowInAppStringSearchResults'
 
 
 def fail(message):
@@ -49,7 +51,38 @@ def main(argv):
         phrases = [p.get('key', '') for p in shortcut.get('phraseTemplates') or []]
         title = (shortcut.get('shortTitle') or {}).get('key', '')
         print(f"{shortcut.get('actionIdentifier')} ({title}): " + ' | '.join(phrases))
+
+    error = check_search_action(actions)
+    if error:
+        return fail(error)
+    print(f'{SEARCH_ACTION}: {SEARCH_PROTOCOL} scopes=[general] '
+          '(Spotlight "Search in Apps" row for any query)')
     return 0
+
+
+def check_search_action(actions):
+    """The Notes-style 'Search xCreen' row needs ShowInAppStringSearchResults with the general scope."""
+    action = actions.get(SEARCH_ACTION)
+    if not isinstance(action, dict):
+        return f'action {SEARCH_ACTION} is missing'
+    visibility = action.get('visibilityMetadata') or {}
+    if visibility.get('isDiscoverable') is False or visibility.get('assistantOnly') is True:
+        return f'action {SEARCH_ACTION} is hidden from Spotlight'
+    if SEARCH_PROTOCOL not in (action.get('systemProtocols') or []):
+        return f'action {SEARCH_ACTION} lacks system protocol {SEARCH_PROTOCOL}'
+    scopes = []
+    for key in ('systemProtocolMetadata', 'systemProtocolMetadataV2'):
+        meta = action.get(key) or []
+        # Encoded as a flat [protocol, payload, protocol, payload, ...] list.
+        for name, payload in zip(meta[::2], meta[1::2]):
+            if name == SEARCH_PROTOCOL and isinstance(payload, dict):
+                scopes += (payload.get('showInAppStringSearchResults') or {}).get('searchScopes') or []
+    if 'general' not in scopes:
+        return f'action {SEARCH_ACTION} {SEARCH_PROTOCOL} metadata lacks the general search scope'
+    criteria = [p for p in action.get('parameters') or [] if p.get('name') == 'criteria']
+    if not criteria or 'searchCriteria' not in (criteria[0].get('valueType') or {}):
+        return f'action {SEARCH_ACTION} lacks a searchCriteria criteria parameter'
+    return None
 
 
 if __name__ == '__main__':
