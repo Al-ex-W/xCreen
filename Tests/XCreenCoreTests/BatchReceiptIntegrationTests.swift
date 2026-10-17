@@ -236,7 +236,7 @@ final class BatchReceiptIntegrationTests: XCTestCase {
             print(frame,flush=True)
         """#
         try source.write(to: script, atomically: true, encoding: .utf8)
-        let gateway = HermesGateway(defaultDeadline: 2)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         try await gateway.start(launch: .command(executable: "/usr/bin/python3", arguments: [script.path, runtimePath]))
         var cursor: String?; var ids: [String] = []
         repeat {
@@ -299,7 +299,8 @@ private actor ReceiptGateway: HermesGatewayTransport {
     func rateLimitedCompletion() { pair.continuation.yield(.init(type: "message.complete", payload: try! JSONSerialization.data(withJSONObject: ["payload": ["text": "Rate limited", "status": "error", "error": "HTTP 429: The usage limit has been reached", "recoverable": true, "error_surface": ["layer": "provider", "code": "rate_limit", "retryable": true]]]))) }
     func terminal() { pair.continuation.yield(.init(type: "message.complete", payload: Data("{}".utf8))) }
     func waitForSubmission() async throws {
-        for _ in 0..<1000 { if submitted { try await Task.sleep(for: .milliseconds(2)); return }; try await Task.sleep(for: .milliseconds(1)) }
+        let deadline = Date().addingTimeInterval(TestTiming.subprocessDeadline)
+        while Date() < deadline { if submitted { try await Task.sleep(for: .milliseconds(2)); return }; try await Task.sleep(for: .milliseconds(1)) }
         throw HermesGatewayError.deadlineExceeded
     }
 }

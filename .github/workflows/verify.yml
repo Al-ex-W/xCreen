@@ -7,13 +7,18 @@ permissions:
 jobs:
   test:
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: python3 -m pip install -r bridge/requirements.txt
       - run: python3 -m unittest discover -s bridge/tests -v
+      # Installed-Hermes integration tests skip cleanly: XCREEN_HERMES_ROOT is not set on CI.
+      - run: python3 -m unittest discover -s runtime/tests -v
+      - run: python3 -m unittest discover -s Tests -p '*_test.py' -v
       - run: swift test
       - run: bash scripts/build-app.sh

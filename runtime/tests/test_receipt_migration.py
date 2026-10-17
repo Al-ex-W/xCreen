@@ -11,7 +11,8 @@ class MigrationTests(unittest.TestCase):
     def test_metadata_only_migration_preserves_uncertain_and_backup(self):
         from runtime.migrate_receipts import migrate
         with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as tmp:
-            home = Path(tmp)/'home'; home.mkdir(mode=0o700)
+            tmp = Path(tmp).resolve()  # macOS /var -> /private/var; migrate() rejects symlinked dirs by design
+            home = tmp/'home'; home.mkdir(mode=0o700)
             vault = Path(tmp)/'vault'; vault.mkdir()
             key = hashlib.sha256(str(vault.resolve()).encode()).hexdigest()[:20]
             legacy = home/f'xcreen-daily-{key}-receipts.sqlite3'
@@ -28,7 +29,8 @@ class MigrationTests(unittest.TestCase):
     def test_unknown_schema_refused_without_modification(self):
         from runtime.migrate_receipts import migrate
         with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as tmp:
-            home = Path(tmp)/'home'; home.mkdir(mode=0o700)
+            tmp = Path(tmp).resolve()  # macOS /var -> /private/var; migrate() rejects symlinked dirs by design
+            home = tmp/'home'; home.mkdir(mode=0o700)
             vault = Path(tmp)/'vault'; vault.mkdir()
             key = hashlib.sha256(str(vault.resolve()).encode()).hexdigest()[:20]
             legacy = home/f'xcreen-daily-{key}-receipts.sqlite3'
