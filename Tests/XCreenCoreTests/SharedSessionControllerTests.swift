@@ -356,8 +356,8 @@ import XCTest
         XCTAssertEqual(before, ["start:first"])
         await gateway.releaseStart()
         try await first.value; await disconnect.value; try await reconnect.value
-        try await Task.sleep(for: .milliseconds(20))
-        XCTAssertTrue(controller.connected)
+        let connected = await TestTiming.eventually { controller.connected }
+        XCTAssertTrue(connected)
         let after = await gateway.operations
         XCTAssertEqual(after, ["start:first", "stop", "start:second"])
     }

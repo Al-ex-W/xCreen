@@ -5,7 +5,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
     func testVisibilityRPCUsesExplicitBooleanAndSameActiveSession() async throws {
         let script = try makeGatewayScript()
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
-        let gateway = HermesGateway(defaultDeadline: 1)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
         let hidden = try await gateway.setHidden(sessionID: "runtime-xcreen", hidden: true)
         let shown = try await gateway.setHidden(sessionID: "runtime-xcreen", hidden: false)
@@ -16,7 +16,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
     func testOldProcessExitCannotDisconnectReplacement() async throws {
         let script = try makeGatewayScript(terminationDelay: 0.3)
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
-        let gateway = HermesGateway(defaultDeadline: 1)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
         await gateway.stop()
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
@@ -27,7 +27,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
     func testReadsDurableHistoryFromExactRuntimeSession() async throws {
         let script = try makeGatewayScript()
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
-        let gateway = HermesGateway(defaultDeadline: 1)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
         let data = try await gateway.history(sessionID: "runtime-xcreen")
         let value = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -37,7 +37,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
     func testGatewayStartsRawPythonEntryAndPerformsReadinessHandshake() async throws {
         let script = try makeGatewayScript()
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
-        let gateway = HermesGateway(defaultDeadline: 1)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
         let identity = try await gateway.open(storedSessionID: "stored-xcreen")
         XCTAssertEqual(identity.storedID, "stored-xcreen")
@@ -51,7 +51,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
     func testResumeOmitsTranscriptSoLongSessionsStillConnect() async throws {
         let script = try makeGatewayScript(resumeResult: #"{"session_id":"eb085cde","resumed":"stored-xcreen","message_count":219}"#)
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
-        let gateway = HermesGateway(defaultDeadline: 2)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
         let identity = try await gateway.open(storedSessionID: "stored-xcreen")
         XCTAssertEqual(identity.runtimeID, "eb085cde")
@@ -62,7 +62,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
     func testSwitchModelUsesConfigSetAndVerifiesSessionScope() async throws {
         let script = try makeGatewayScript()
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
-        let gateway = HermesGateway(defaultDeadline: 2)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
         let session = try await gateway.open(storedSessionID: "stored-xcreen")
         _ = try await gateway.switchModel(sessionID: session.runtimeID, model: "anthropic/claude-haiku-5.5", provider: "openrouter")
@@ -77,7 +77,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
     func testResumeAcceptsRealResumedKey() async throws {
         let script = try makeGatewayScript(resumeResult: #"{"session_id":"eb085cde","resumed":"stored-xcreen","message_count":15}"#)
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
-        let gateway = HermesGateway(defaultDeadline: 1)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
         let identity = try await gateway.open(storedSessionID: "stored-xcreen")
         XCTAssertEqual(identity.storedID, "stored-xcreen")
@@ -88,7 +88,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
     func testEverySubscriberReceivesGatewayEvents() async throws {
         let script = try makeGatewayScript()
         defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
-        let gateway = HermesGateway(defaultDeadline: 1)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         let first = await gateway.events()
         let second = await gateway.events()
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
@@ -108,7 +108,7 @@ final class HermesGatewayRuntimeTests: XCTestCase {
         try Data([0x89, 0x50, 0x4e, 0x47]).write(to: image)
         defer { try? FileManager.default.removeItem(at: image) }
 
-        let gateway = HermesGateway(defaultDeadline: 1)
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
         try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
         let session = try await gateway.open(storedSessionID: "stored-xcreen")
         try await gateway.submitBatch(sessionID: session.runtimeID, text: "manifest", images: [

@@ -37,7 +37,7 @@ final class HermesSessionRuntimeSafetyTests: XCTestCase {
         let phases = PhaseLog()
         let work = Task { try await runtime.submitAutomatic(manifest: "synthetic", images: [], phaseChanged: { await phases.append($0) }) }
         await gateway.waitForSubmission(count: 1)
-        try await Task.sleep(for: .milliseconds(20))
+        _ = await TestTiming.eventually { await phases.values.count >= 2 }
         let recorded = await phases.values
         XCTAssertEqual(recorded, [.submitting, .admitted])
         await gateway.emit(type: "message.complete")
