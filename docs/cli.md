@@ -83,6 +83,6 @@ xcreen restart
 
 **start / stop.** Start launches the installed app without enabling capture; stop/quit request graceful app-owned teardown. No process-name kill is used by the CLI.
 
-**URL scheme and Spotlight.** `xcreen://ask?query=...` and the macOS 26+ Ask xCreen App Intent only open/fill the panel, never submit automatically. Arbitrary-query Spotlight interception is not claimed.
+**URL scheme and Spotlight.** `xcreen://ask?query=...`, `xcreen://open` and the macOS 26+ "Ask xCreen"/"Open xCreen" App Shortcuts only open/fill the panel, never submit automatically. They work whether xCreen is already running or is launched by the URL. Arbitrary-query Spotlight interception is not claimed.
 
 See [CLI/tray parity](cli-parity.md) for acknowledgment, lineage and security limits.

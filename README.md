@@ -45,7 +45,7 @@ xCreen suits Mac users who already run Hermes Agent, keep notes in Obsidian, and
 - **A working [Hermes Agent](https://github.com/NousResearch/hermes-agent) install is required.** xCreen does not include a model or keep API keys. It uses your Hermes profile read-only.
 - **Local OCR does not mean local inference.** Batches and questions go to the provider behind your chosen route, and that provider's retention rules apply. For on-device inference, configure a local model in Hermes.
 - **Developer build.** You build it from source with Swift/Xcode. It is not notarized. Use a stable signing identity so macOS keeps the Screen Recording permission across reinstalls.
-- macOS 14 or later, Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later.
+- macOS 14 or later, Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.
 
 ## Quick start
 
