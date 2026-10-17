@@ -2,7 +2,7 @@
 
 **Open-source (Apache-2.0) screen memory for macOS that writes useful, source-linked insights into your Obsidian daily notes, powered by your own [Hermes Agent](https://github.com/NousResearch/hermes-agent) and whichever models you configure.**
 
-An open-source alternative to Rewind, Retrace, screenpipe, Goldfish and Microsoft Recall for people who already run Hermes Agent on a Mac.
+Looking for an open-source Rewind or Microsoft Recall alternative for Mac? xCreen is one, also comparable to Retrace, screenpipe and Goldfish, for people who already run Hermes Agent. [Website](https://al-ex-w.github.io/xCreen/) · [FAQ](https://al-ex-w.github.io/xCreen/faq/) · [Alternatives compared](https://al-ex-w.github.io/xCreen/alternatives/)
 
 [![Verify](https://github.com/Al-ex-W/xCreen/actions/workflows/verify.yml/badge.svg)](https://github.com/Al-ex-W/xCreen/actions/workflows/verify.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
