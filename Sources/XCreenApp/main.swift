@@ -62,6 +62,8 @@ import XCreenUI
     @Published var nextBatchRetry: Date?
     private let defaults: UserDefaults
     private let log = ActivityLog.shared
+    /// Drives the tray thinking indicator and the menu bar icon swap.
+    @Published var askGenerating = false { didSet { if askGenerating != oldValue { AppDelegate.shared?.setGenerating(askGenerating) } } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -77,6 +79,12 @@ import XCreenUI
             guard let self else { return }
             self.connected = value
             self.log.updateStatus(["hermes": value ? "connected" : "disconnected"])
+        }
+        Task { [runtime = controller.runtime, log] in
+            await runtime.setCompactionObserver { tokens, error in
+                if let error { log.write(.error, "hard compaction (/compress here \(HermesSessionRuntime.hardCompactionKeepLast)) failed at ~\(tokens) tokens: \(error.localizedDescription)") }
+                else { log.write(.session, "hard compaction (/compress here \(HermesSessionRuntime.hardCompactionKeepLast)) at ~\(tokens) tokens") }
+            }
         }
         controller.eventReceived = { [weak self] event in self?.receiveGatewayEvent(event) }
         controller.visibilityChanged = { [weak self] in self?.objectWillChange.send() }
@@ -441,7 +449,9 @@ import XCreenUI
             query = AskFieldPolicy.fieldAfterAdmission(current: query, submitted: question)
 
             let completion = TurnCompletion()
+            askGenerating = true
             Task { @MainActor in
+                defer { if self.manualPresentationID == presentationID { self.askGenerating = false } }
                 do {
                     completion.reply = try await answer.value
                     if self.manualPresentationID == presentationID { self.submissionMessage = "Hermes response complete." }
@@ -459,7 +469,7 @@ import XCreenUI
                 return .ok(snapshot(), reply: completion.reply)
             }
             return .ok(snapshot(), reply: nil)
-        case .cancel: try await controller.cancelManual(); submissionMessage = "Hermes question cancellation requested."
+        case .cancel: try await controller.cancelManual(); askGenerating = false; submissionMessage = "Hermes question cancellation requested."
         case .images:
             if let id = command.value {
                 guard let image = appendix.first(where: { $0.id == id }) else { throw LocalControlError.invalidRequest("unknown reply image") }
@@ -532,6 +542,12 @@ extension AppState: TrayPanelModel {}
             // Let the status item get laid out before anchoring the popover to it.
             DispatchQueue.main.async { [weak self] in self?.perform(handoff) }
         }
+    }
+
+    /// Cheap menu bar swap while a question is generating (static: menu bar symbols don't animate).
+    func setGenerating(_ generating: Bool) {
+        guard item != nil else { return }
+        item.button?.image = NSImage(systemSymbolName: generating ? "arrow.counterclockwise.circle" : "display", accessibilityDescription: generating ? "xCreen — Hermes is thinking" : "xCreen")
     }
 
     @objc func toggle() {
