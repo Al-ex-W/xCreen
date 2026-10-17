@@ -43,14 +43,21 @@ public struct CaptureCheckpoint: Codable, Sendable {
 }
 
 public actor EvidenceStore {
-    private struct BatchRecord: Codable { var batch: CaptureBatch; var status: String; var attempts: Int? = nil; var sourceIDs: [String]? = nil; var sessionID: String? = nil; var receipt: BatchReceipt? = nil }
+    private struct BatchRecord: Codable { var batch: CaptureBatch; var status: String; var attempts: Int? = nil; var sourceIDs: [String]? = nil; var sessionID: String? = nil; var receipt: BatchReceipt? = nil; var retryAfter: Date? = nil; var providerRetries: Int? = nil }
     public enum BatchState: String, Codable, Sendable { case pending, submitting, admitted, completed, uncertain, deadletter }
     public struct BatchSummary: Codable, Sendable {
         public let id: String; public let state: BatchState; public let attempts: Int
         public let startedAt: Date; public let completedAt: Date
         public let receipt: BatchReceipt?
     }
-    private struct Index: Codable { var images: [EvidenceImage] = []; var ocr: [OCREvidence] = []; var batches: [BatchRecord] = [] }
+    private struct Index: Codable { var images: [EvidenceImage] = []; var ocr: [OCREvidence] = []; var batches: [BatchRecord] = []; var providerThrottleUntil: Date? = nil }
+    /// Send attempts (including the original) before a provider-failed, receipt-proven
+    /// effect-free batch is deadlettered. Pre-admission failures keep their own limit of 3.
+    public static let maximumProviderAttempts = 6
+    static func providerBackoff(retry: Int, rateLimited: Bool) -> TimeInterval {
+        let exponent = Double(min(max(retry - 1, 0), 4))
+        return rateLimited ? min(15 * 60 * pow(2, exponent), 4 * 3600) : min(2 * 60 * pow(2, exponent), 3600)
+    }
     private static let retention: TimeInterval = 7 * 24 * 60 * 60
     /// Index and checkpoint reads are deliberately bounded: these are local
     /// recovery files, not an unbounded import format.
@@ -198,7 +205,20 @@ public actor EvidenceStore {
         return result
     }
 
-    public func pendingBatches() throws -> [CaptureBatch] { index.batches.filter { $0.status == "pending" && !Self.expired($0.batch.completedAt, now: Date()) }.map(\.batch).sorted { $0.startedAt < $1.startedAt } }
+    /// Due pending work only. A provider rate limit throttles the whole automatic
+    /// pipeline (same account), a per-batch backoff only that batch.
+    public func pendingBatches(now: Date = Date()) throws -> [CaptureBatch] {
+        guard (index.providerThrottleUntil ?? .distantPast) <= now else { return [] }
+        return index.batches.filter { $0.status == "pending" && ($0.retryAfter ?? .distantPast) <= now && !Self.expired($0.batch.completedAt, now: now) }.map(\.batch).sorted { $0.startedAt < $1.startedAt }
+    }
+    /// Earliest instant at which backed-off pending work becomes due, if any.
+    public func nextRetryDate(now: Date = Date()) -> Date? {
+        let waiting = index.batches.filter { $0.status == "pending" && !Self.expired($0.batch.completedAt, now: now) }
+        guard !waiting.isEmpty else { return nil }
+        let throttle = index.providerThrottleUntil ?? .distantPast
+        let due = waiting.map { max($0.retryAfter ?? .distantPast, throttle) }.min() ?? .distantPast
+        return due > now ? due : nil
+    }
     public func batchPage(after: String = "", limit: Int = 20) -> [BatchSummary] {
         var rows = index.batches.filter { $0.batch.id > after }.sorted { $0.batch.id < $1.batch.id }.prefix(max(1, min(limit, 20))).map {
             BatchSummary(id: $0.batch.id, state: BatchState(rawValue: $0.status) ?? .uncertain, attempts: $0.attempts ?? 0, startedAt: $0.batch.startedAt, completedAt: $0.batch.completedAt, receipt: $0.receipt)
@@ -206,19 +226,62 @@ public actor EvidenceStore {
         while rows.count > 1, (try? JSONEncoder().encode(rows).count) ?? Int.max > 24_000 { rows.removeLast() }
         return rows
     }
-    public func recordBatchFailure(id: String, cancelled: Bool = false) throws {
+    /// Classifies a finished automatic attempt. Only a host receipt for this exact
+    /// binding that explicitly proves zero reserved/written effects and no terminal
+    /// result (`retry_safe`) plus a terminal provider failure may return work to
+    /// pending. Effects, unknown effects or an old host stay uncertain.
+    public func recordBatchFailure(id: String, cancelled: Bool = false, error: Error? = nil, now: Date = Date()) throws {
         guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
         let old = index
+        let gatewayError = error as? HermesGatewayError
+        // Not sent: deferral, Integrity cancellation or no connection never consume attempts.
+        let notSent = cancelled || gatewayError == .cancelled || gatewayError == .unavailable || (error as? EvidenceStoreError) == .deferred
         switch index.batches[i].status {
         case "pending":
-            if cancelled { return }
+            if notSent { return }
             let attempts = (index.batches[i].attempts ?? 0) + 1
             index.batches[i].attempts = attempts
-            if attempts >= 3 { index.batches[i].status = "deadletter" }
-        case "submitting", "admitted": index.batches[i].status = "uncertain"
+            if attempts >= ((index.batches[i].providerRetries ?? 0) > 0 ? Self.maximumProviderAttempts : 3) { index.batches[i].status = "deadletter" }
+        case "submitting", "admitted", "uncertain":
+            if case .providerFailure(let limited)? = gatewayError, Self.retrySafe(index.batches[i]) {
+                requeue(i, now: now, backoff: true, rateLimited: limited)
+            } else if index.batches[i].status == "uncertain" { return }
+            else { index.batches[i].status = "uncertain" }
         default: return
         }
         do { try persist() } catch { index = old; throw error }
+    }
+    /// Explicit recovery for work stranded uncertain before automatic classification
+    /// existed (or after a crash/disconnect): requires the same zero-effect host proof.
+    @discardableResult public func requeueRetrySafe(id: String, now: Date = Date()) throws -> Bool {
+        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
+        guard index.batches[i].status == "uncertain", Self.retrySafe(index.batches[i]) else { return false }
+        let old = index
+        requeue(i, now: now, backoff: false, rateLimited: false)
+        do { try persist() } catch { index = old; throw error }
+        return index.batches[i].status == "pending"
+    }
+    public func batchState(id: String) -> BatchState? { index.batches.first { $0.batch.id == id }.flatMap { BatchState(rawValue: $0.status) } }
+    public func uncertainBatchIDs() -> Set<String> { Set(index.batches.filter { $0.status == "uncertain" }.map(\.batch.id)) }
+    private static func retrySafe(_ record: BatchRecord) -> Bool {
+        guard let receipt = record.receipt, let session = record.sessionID else { return false }
+        return receipt.retrySafe == true && !receipt.verified && receipt.effects.isEmpty && receipt.sessionID == session
+            && receipt.batchID == record.batch.id
+    }
+    private func requeue(_ i: Int, now: Date, backoff: Bool, rateLimited: Bool) {
+        let retries = (index.batches[i].providerRetries ?? 0) + 1
+        index.batches[i].providerRetries = retries
+        // A consumed retry proof cannot authorize a later attempt; the next binding is fresh.
+        index.batches[i].receipt = nil
+        index.batches[i].sessionID = nil
+        let delay = backoff ? Self.providerBackoff(retry: retries, rateLimited: rateLimited) : 0
+        // An observed rate limit throttles all automatic sends, even if this batch is exhausted.
+        if rateLimited, delay > 0 { index.providerThrottleUntil = max(index.providerThrottleUntil ?? .distantPast, now.addingTimeInterval(delay)) }
+        if (index.batches[i].attempts ?? 0) >= Self.maximumProviderAttempts || Self.expired(index.batches[i].batch.completedAt, now: now) {
+            index.batches[i].status = "deadletter"; index.batches[i].retryAfter = nil; return
+        }
+        index.batches[i].status = "pending"
+        index.batches[i].retryAfter = delay > 0 ? now.addingTimeInterval(delay) : nil
     }
     public func batchBindings() -> [BatchBinding] {
         index.batches.filter { $0.status != "pending" && $0.status != "deadletter" }.map {
@@ -247,8 +310,10 @@ public actor EvidenceStore {
         index.batches[i].status = receipt.completesProcessing ? "completed" : "uncertain"
         do { try persist() } catch { index = old; throw error }
     }
-    public func transitionBatch(id: String, to state: BatchState) throws {
+    public func transitionBatch(id: String, to state: BatchState, now: Date = Date()) throws {
         guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
+        if state == .submitting, index.batches[i].status == "pending",
+           max(index.providerThrottleUntil ?? .distantPast, index.batches[i].retryAfter ?? .distantPast) > now { throw EvidenceStoreError.deferred }
         let previous = BatchState(rawValue: index.batches[i].status) ?? .uncertain
         let allowed: Bool
         switch (previous, state) {
@@ -257,7 +322,7 @@ public actor EvidenceStore {
         }
         guard allowed else { throw EvidenceStoreError.invalidInput }
         let old = index
-        if state == .submitting { index.batches[i].attempts = (index.batches[i].attempts ?? 0) + 1 }
+        if state == .submitting { index.batches[i].attempts = (index.batches[i].attempts ?? 0) + 1; index.batches[i].retryAfter = nil }
         index.batches[i].status = state.rawValue
         do { try persist() } catch { index = old; throw error }
     }
@@ -383,4 +448,4 @@ public actor EvidenceStore {
     }
 }
 
-public enum EvidenceStoreError: Error { case invalidInput, unsafePath }
+public enum EvidenceStoreError: Error, Equatable { case invalidInput, unsafePath, deferred }

@@ -18,6 +18,8 @@ public struct BatchReceipt: Codable, Sendable {
     public let verified: Bool
     public let effectCount: Int
     public let effects: [BatchEffectReceipt]
+    /// Optional for compatibility: old hosts can never authorize replay.
+    public let retrySafe: Bool?
 
     public init(data: Data, batchID: String, sourceIDs: [String], sessionID: String) throws {
         guard data.count <= 48_000,
@@ -42,6 +44,11 @@ public struct BatchReceipt: Codable, Sendable {
                   (item["digest"] as? String)?.utf8.count ?? 0 <= 128 else { throw HermesGatewayError.protocolFailure }
             return BatchEffectReceipt(entryID: id, day: item["day"] as? String, digest: item["digest"] as? String, state: state)
         }
+        if let retry = object["retry_safe"] {
+            guard let boolean = retry as? NSNumber, CFGetTypeID(boolean) == CFBooleanGetTypeID(),
+                  !boolean.boolValue || (!flag.boolValue && status == "uncertain" && effects.isEmpty) else { throw HermesGatewayError.protocolFailure }
+            retrySafe = boolean.boolValue
+        } else { retrySafe = nil }
         self.status = status; self.verified = flag.boolValue; self.effectCount = effects.count
     }
     public var completesProcessing: Bool { verified && (status == "saved" || status == "skipped") }

@@ -20,6 +20,18 @@ final class DurableBatchTests: XCTestCase {
         XCTAssertEqual(page.first?.state, .deadletter)
     }
 
+    func testGatewayExitBeforeSendNeverConsumesAttempts() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try EvidenceStore(root: root)
+        let batch = CaptureBatch(id: "batch-offline", images: [], startedAt: Date(), completedAt: Date(), ocr: [])
+        try await store.savePendingBatch(batch)
+        for _ in 0..<5 { try await store.recordBatchFailure(id: batch.id, error: HermesGatewayError.unavailable) }
+        let page = await store.batchPage()
+        XCTAssertEqual(page.first?.state, .pending, "a disconnected gateway never sent the batch")
+        XCTAssertEqual(page.first?.attempts, 0)
+    }
+
     func testInterruptedSubmissionSurvivesRestartWithoutBlindRetry() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
