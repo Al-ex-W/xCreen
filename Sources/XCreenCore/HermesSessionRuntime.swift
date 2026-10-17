@@ -52,6 +52,15 @@ public actor HermesSessionRuntime {
     private var reconcilingTurn: UUID?
     private var connectionGeneration: UInt64 = 0
     private var connected = false
+    /// Above this many context tokens the session is hard-compacted (`/compress here N`) while
+    /// idle, instead of letting Hermes auto-compact before every model call.
+    public static let hardCompactionThreshold = 500_000
+    public static let hardCompactionKeepLast = 2
+    private var compacting = false
+    public private(set) var hardCompactions = 0
+    /// Optional observer (logging); called after each hard compaction attempt.
+    private var compactionObserver: (@Sendable (Int, Error?) -> Void)?
+    public func setCompactionObserver(_ observer: (@Sendable (Int, Error?) -> Void)?) { compactionObserver = observer }
     private var contextTokens = 0; private var contextLimit = 500_000; private var integrity = true; private var integrityEpoch: UInt64 = 0
 
     public init(gateway: any HermesGatewayTransport, records: HermesSessionRecordStore = UserDefaultsHermesSessionRecordStore()) { self.gateway = gateway; self.records = records; self.session = records.load() }
@@ -105,7 +114,7 @@ public actor HermesSessionRuntime {
         } else { cancelledManual.insert(turnID) }
     }
     public func modelOptions() async throws -> Data { try await waitForIdle(); guard let id = session?.runtimeSessionID else { throw HermesGatewayError.unavailable }; return try await gateway.models(sessionID: id) }
-    public func updateContextUsage(tokens: Int, limit: Int?) { contextTokens = max(0, tokens); if let limit, limit > 0 { contextLimit = limit } }
+    public func updateContextUsage(tokens: Int, limit: Int?) { contextTokens = max(0, tokens); if let limit, limit > 0 { contextLimit = limit }; drainIfNeeded() }
     public func currentSession() -> HermesSessionRecord? { session }
     public func connectionToken() -> UInt64 { connectionGeneration }
 
@@ -115,10 +124,30 @@ public actor HermesSessionRuntime {
             if kind == .manual { manual.append(turn) } else { automatic.append(turn) }; drainIfNeeded()
         }
     }
-    private func drainIfNeeded() { guard !draining, current == nil, !manual.isEmpty || !automatic.isEmpty else { return }; draining = true; Task { await drainOne() } }
+    private func drainIfNeeded() { guard !draining, current == nil, !manual.isEmpty || !automatic.isEmpty || hardCompactionDue else { return }; draining = true; Task { await drainOne() } }
+    private var hardCompactionDue: Bool { connected && !compacting && contextTokens >= Self.hardCompactionThreshold && session?.runtimeSessionID != nil }
+    /// Runs inside the drain slot, so no batch/ask turn is current or can start meanwhile.
+    private func hardCompactIfDue() async {
+        guard hardCompactionDue, let id = session?.runtimeSessionID else { return }
+        compacting = true; let before = contextTokens
+        defer { compacting = false }
+        do {
+            _ = try await gateway.compactHard(sessionID: id, keepLast: Self.hardCompactionKeepLast)
+            hardCompactions += 1
+            // Fresh usage arrives with the next session.info; never retry-loop on a stale count.
+            if contextTokens == before { contextTokens = 0 }
+            compactionObserver?(before, nil)
+        } catch {
+            // Do not spin: wait for fresh usage from the host before trying again.
+            if contextTokens == before { contextTokens = 0 }
+            compactionObserver?(before, error)
+        }
+    }
     private func drainOne() async {
         defer { draining = false; if current == nil { drainIfNeeded() } }
         guard connected, let id = session?.runtimeSessionID else { failQueues(HermesGatewayError.unavailable); return }
+        await hardCompactIfDue()
+        guard connected, session?.runtimeSessionID == id else { failQueues(HermesGatewayError.unavailable); return }
         let next: QueuedTurn? = !manual.isEmpty ? manual.removeFirst() : (!automatic.isEmpty ? automatic.removeFirst() : nil)
         guard let next else { return }; current = next; currentCancelled = false; currentSubmitting = false; awaitingAdmission = false; delayedTerminal = nil; currentOutput = ""
         do {
@@ -167,13 +196,17 @@ public actor HermesSessionRuntime {
         switch event.type {
         case "message.delta", "message.interim":
             if let object = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any], let payload = object["payload"] as? [String: Any] { currentOutput += payload["text"] as? String ?? "" }
-        case "session.info":
+        case "session.info", "session.usage":
             if let object = try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any], let payload = object["payload"] as? [String: Any], let usage = payload["usage"] as? [String: Any] { updateContextUsage(tokens: usage["context_used"] as? Int ?? 0, limit: usage["context_max"] as? Int) }
         case "message.complete", "run.completed", "turn.completed", "message.failed", "run.failed", "turn.failed", "error":
             let payload = (try? JSONSerialization.jsonObject(with: event.payload) as? [String: Any])?["payload"] as? [String: Any]
             let failure = Self.providerFailure(type: event.type, payload: payload)
             if failure == nil, let text = payload?["text"] as? String, !text.isEmpty { currentOutput = text }
-            if currentCancelled || (current?.kind == .automatic && (integrity || current?.integrityEpoch != integrityEpoch)) { finishCurrent(HermesGatewayError.cancelled) }
+            let fenced = currentCancelled || (current?.kind == .automatic && (integrity || current?.integrityEpoch != integrityEpoch))
+            // A fenced (Integrity/pause) automatic turn may already have written its durable host
+            // receipt before the interrupt. Reading that local receipt transmits nothing, so reconcile
+            // it instead of leaving completed work uncertain; without proof it stays cancelled.
+            if fenced, current?.kind != .automatic || current?.binding == nil { finishCurrent(HermesGatewayError.cancelled) }
             else if let turn = current, let binding = turn.binding, let sessionID = session?.runtimeSessionID {
                 guard reconcilingTurn != turn.id else { return }
                 reconcilingTurn = turn.id
@@ -186,6 +219,7 @@ public actor HermesSessionRuntime {
                         try await turn.receiptChanged?(receipt)
                         guard self.current?.id == turn.id else { return }
                         if receipt.completesProcessing { self.finishCurrent(nil) }
+                        else if fenced { self.finishCurrent(HermesGatewayError.cancelled) }
                         else { self.finishCurrent(failure ?? HermesGatewayError.remoteFailure("batch processing receipt missing or uncertain")) }
                     } catch { if self.current?.id == turn.id { self.finishCurrent(error) } }
                 }
