@@ -54,7 +54,7 @@ xCreen suits Mac users who already run Hermes Agent, keep notes in Obsidian, and
 - **A working [Hermes Agent](https://github.com/NousResearch/hermes-agent) install is required.** xCreen does not include a model or keep API keys. It uses your Hermes profile read-only.
 - **Local OCR does not mean local inference.** Batches and questions go to the provider behind your chosen route, and that provider's retention rules apply. For on-device inference, configure a local model in Hermes.
 - **Developer build.** You build it from source with Swift/Xcode. It is not notarized. Use a stable signing identity so macOS keeps the Screen Recording permission across reinstalls.
-- macOS 14 or later, Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later.
+- macOS 14 or later, Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.
 
 ## Quick start
 
@@ -171,7 +171,7 @@ The **Show session in Hermes** tray toggle defaults OFF (hidden). Use `xcreen se
 - Integrity OFF in the tray or `xcreen integrity off` explicitly consents to capture. The same actual service runs permission/state/exclusion gates for both interfaces. Permission denial leaves the user's desired switch unchanged and reports capture blocked; an explicit OFF action may show macOS's permission/settings UI. Do not bypass it. No development test should execute this action against a real capture service.
 - `xcreen ask "QUESTION"` explicitly authorizes that question in the xCreen session. Captured evidence can reach a model provider, and Hermes/provider history may outlive local seven-day retention.
 - Configuring a vault enables the scoped source-bound writer for existing Daily notes; do not configure it without understanding that boundary.
-- The macOS 26+ Ask xCreen action opens a reviewed question handoff. Installed Spotlight discovery/ranking is not guaranteed or yet system-verified.
+- On macOS 26+, Spotlight offers "Ask xCreen" (asks for a question, then opens the panel with it filled in; you submit) and "Open xCreen". The build fails if Xcode's App Intents metadata lacks these App Shortcuts. Spotlight picks them up after the installed app is registered and launched once; indexing can take a minute and ranking is up to macOS.
 
 ## Uninstall
 
@@ -233,6 +233,10 @@ OCR runs locally. Inference does not: batches and questions go to whichever prov
 Browsers are eligible, including Safari, Chrome, Firefox, Edge and Brave. Known credential/security apps, System Settings and xCreen itself remain excluded. **Browser password fields, password-manager extensions/popovers and incognito/private windows are not detected or redacted.** Visible secrets can enter screenshots/OCR and later model batches; turn Integrity ON before sensitive browsing. There is no universal password/login protection guarantee. See [SECURITY.md](../SECURITY.md) for exact matching rules and limitations.
 
 Screen content is untrusted evidence, not authority to send messages, alter calendars or execute instructions.
+
+## Spotlight (macOS 26+)
+
+xCreen declares an `AskXCreenIntent` with a required question and an `AppShortcutsProvider`, which is what Spotlight on Mac lists as an app's actions. Type "Ask xCreen" in Spotlight, enter a question, and the panel opens with it filled in; you still press Ask. "Open xCreen" just shows the panel. Because xCreen is built with SwiftPM, `scripts/build-app.sh` generates the App Intents metadata with Xcode's tool and fails if the action or App Shortcuts are missing. Spotlight learns about them once the installed app is registered and launched; this can take a minute.
 
 ## macOS session checks
 
@@ -332,7 +336,7 @@ xcreen restart
 
 **start / stop.** Start launches the installed app without enabling capture; stop/quit request graceful app-owned teardown. No process-name kill is used by the CLI.
 
-**URL scheme and Spotlight.** `xcreen://ask?query=...` and the macOS 26+ Ask xCreen App Intent only open/fill the panel, never submit automatically. Arbitrary-query Spotlight interception is not claimed.
+**URL scheme and Spotlight.** `xcreen://ask?query=...`, `xcreen://open` and the macOS 26+ "Ask xCreen"/"Open xCreen" App Shortcuts only open/fill the panel, never submit automatically. They work whether xCreen is already running or is launched by the URL. Arbitrary-query Spotlight interception is not claimed.
 
 See [CLI/tray parity](cli-parity.md) for acknowledgment, lineage and security limits.
 

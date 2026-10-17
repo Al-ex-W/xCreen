@@ -41,6 +41,10 @@ Browsers are eligible, including Safari, Chrome, Firefox, Edge and Brave. Known 
 
 Screen content is untrusted evidence, not authority to send messages, alter calendars or execute instructions.
 
+## Spotlight (macOS 26+)
+
+xCreen declares an `AskXCreenIntent` with a required question and an `AppShortcutsProvider`, which is what Spotlight on Mac lists as an app's actions. Type "Ask xCreen" in Spotlight, enter a question, and the panel opens with it filled in; you still press Ask. "Open xCreen" just shows the panel. Because xCreen is built with SwiftPM, `scripts/build-app.sh` generates the App Intents metadata with Xcode's tool and fails if the action or App Shortcuts are missing. Spotlight learns about them once the installed app is registered and launched; this can take a minute.
+
 ## macOS session checks
 
 Session checks require a present session dictionary, strict true console/login values and a resolvable non-security foreground. The undocumented lock hint may be absent or strict false; true/malformed hints and independent notification vetoes block. These are compatibility checks, not a documented synchronous unlock API (see [session research](macos-session-research.md)).

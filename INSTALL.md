@@ -47,7 +47,7 @@ The **Show session in Hermes** tray toggle defaults OFF (hidden). Use `xcreen se
 - Integrity OFF in the tray or `xcreen integrity off` explicitly consents to capture. The same actual service runs permission/state/exclusion gates for both interfaces. Permission denial leaves the user's desired switch unchanged and reports capture blocked; an explicit OFF action may show macOS's permission/settings UI. Do not bypass it. No development test should execute this action against a real capture service.
 - `xcreen ask "QUESTION"` explicitly authorizes that question in the xCreen session. Captured evidence can reach a model provider, and Hermes/provider history may outlive local seven-day retention.
 - Configuring a vault enables the scoped source-bound writer for existing Daily notes; do not configure it without understanding that boundary.
-- The macOS 26+ Ask xCreen action opens a reviewed question handoff. Installed Spotlight discovery/ranking is not guaranteed or yet system-verified.
+- On macOS 26+, Spotlight offers "Ask xCreen" (asks for a question, then opens the panel with it filled in; you submit) and "Open xCreen". The build fails if Xcode's App Intents metadata lacks these App Shortcuts. Spotlight picks them up after the installed app is registered and launched once; indexing can take a minute and ranking is up to macOS.
 
 ## Uninstall
 
