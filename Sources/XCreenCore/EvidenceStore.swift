@@ -61,8 +61,10 @@ public actor EvidenceStore {
     private static let retention: TimeInterval = 7 * 24 * 60 * 60
     /// Index and checkpoint reads are deliberately bounded: these are local
     /// recovery files, not an unbounded import format.
-    private static let maximumIndexBytes = 8_000_000
-    private static let maximumCheckpointBytes = 8_000_000
+    // Seven days of OCR text plus batch manifests reached 8.6 MB in real use, and an
+    // unreadable index blocks capture entirely. These are corruption guards, not quotas.
+    private static let maximumIndexBytes = 128_000_000
+    private static let maximumCheckpointBytes = 32_000_000
     public static let maximumOCRCharacters = 12_000
     private let root: URL
     private let imagesDirectory: URL
