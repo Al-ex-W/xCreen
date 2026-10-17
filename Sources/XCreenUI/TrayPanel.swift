@@ -33,6 +33,37 @@ import XCreenCore
     func switchHermesModel(_ routeID: String)
     func autodetectLocalSetup(overwrite: Bool)
     func saveHermesExecutable()
+    /// True only while an admitted tray question is waiting for Hermes's answer.
+    var askGenerating: Bool { get }
+}
+
+public extension TrayPanelModel {
+    var askGenerating: Bool { false }
+}
+
+/// The xCreen monitor symbol with a small circular arrow that rotates counterclockwise
+/// (rewinding) while Hermes generates. Reduce Motion shows the static composite.
+public struct ThinkingIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spinning = false
+    public init() {}
+    public var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Image(systemName: "display").font(.system(size: 16, weight: .regular))
+            Image(systemName: "arrow.counterclockwise")
+                .font(.system(size: 8, weight: .bold))
+                .padding(1.5)
+                .background(Circle().fill(.background))
+                .rotationEffect(.degrees(spinning ? -360 : 0))
+                .animation(reduceMotion ? nil : .linear(duration: 1.2).repeatForever(autoreverses: false), value: spinning)
+                .offset(x: 3, y: 3)
+        }
+        .foregroundStyle(.blue)
+        .onAppear { if !reduceMotion { spinning = true } }
+        .onChange(of: reduceMotion) { _, reduced in spinning = !reduced }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Hermes is thinking")
+    }
 }
 
 public struct Panel<Model: TrayPanelModel>: View {
@@ -100,11 +131,14 @@ public struct Panel<Model: TrayPanelModel>: View {
                 }
             }
 
-            if !state.submissionMessage.isEmpty {
-                Text(state.submissionMessage)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if !state.submissionMessage.isEmpty || state.askGenerating {
+                HStack(alignment: .center, spacing: 8) {
+                    if state.askGenerating { ThinkingIndicator() }
+                    Text(state.submissionMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             if !state.lastQuestion.isEmpty {
@@ -149,7 +183,7 @@ public struct Panel<Model: TrayPanelModel>: View {
                         Button("Save") { state.saveHermesExecutable() }
                     }
                     .buttonStyle(.borderless)
-                    Text("xCreen launches its bundled runtime/xcreen_gateway.py with this Python, which registers the xcreen tools and starts Hermes's raw tui_gateway. Only the xCreen session uses them; no profile or model default is changed. With a vault set, the agent may append sourced facts to existing Daily notes.")
+                    Text("xCreen launches its bundled runtime/xcreen_gateway.py with this Python, which registers the xcreen tools and starts Hermes's raw tui_gateway. Only the xCreen session uses them; no profile or model default is changed. With a vault set, the agent notes what matters in your Obsidian vault.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
