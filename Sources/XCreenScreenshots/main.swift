@@ -12,11 +12,11 @@ import XCreenUI
     let sessionVisible = false
     let visibilityStatus = "Confirmed by Hermes for this session."
     let hermesModels = [
-        HermesModelRoute(provider: "openrouter", model: "anthropic/claude-haiku-5.5"),
-        HermesModelRoute(provider: "openrouter", model: "anthropic/claude-sonnet-5"),
+        HermesModelRoute(provider: "anthropic", model: "claude-haiku-5-5"),
+        HermesModelRoute(provider: "anthropic", model: "claude-sonnet-5"),
     ]
-    let selectedHermesModel = "openrouter::anthropic/claude-haiku-5.5"
-    let modelDefaultStatus = "xCreen default: openrouter · anthropic/claude-haiku-5.5. Applied to the xCreen session."
+    let selectedHermesModel = "anthropic::claude-haiku-5-5"
+    let modelDefaultStatus = "xCreen default: anthropic · claude-haiku-5-5. Applied to the xCreen session."
     @Published var query = "What was I working on before lunch?"
     var canAsk: Bool { !query.isEmpty }
     let connected = true

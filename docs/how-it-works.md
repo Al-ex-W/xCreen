@@ -31,7 +31,7 @@ xCreen does not modify Hermes profile defaults or other conversations.
 
 ## Models
 
-Model inventory comes from Hermes's provider-aware configured routes. xCreen keeps its own session default — Claude Haiku 5.5 via OpenRouter (`openrouter` / `anthropic/claude-haiku-5.5`) unless changed with the tray picker or `xcreen model default` — applied only to the xCreen session with a session-scoped model switch and reported if unavailable (no fallback). Inventory currently carries no reliable vision/image-limit metadata, so check that your chosen route accepts images.
+Model inventory comes from Hermes's provider-aware configured routes. xCreen keeps its own session default — Claude Haiku 5.5 on your Anthropic account (`anthropic` / `claude-haiku-5-5`) unless changed with the tray picker or `xcreen model default` — applied only to the xCreen session with a session-scoped model switch and reported if unavailable (no fallback). Inventory currently carries no reliable vision/image-limit metadata, so check that your chosen route accepts images.
 
 OCR runs locally. Inference does not: batches and questions go to whichever provider the selected route uses.
 
