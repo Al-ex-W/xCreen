@@ -27,6 +27,19 @@ _MAX_IMAGE_BYTES = 8 * 1024 * 1024
 _MAX_FACT = 2_000
 
 
+def _open_create(name, flags: int, mode: int, *, dir_fd: int | None = None) -> int:
+    """os.open with O_CREAT, retrying macOS's spurious ENOENT when threads/processes create the
+    same name concurrently. Flags and post-open checks are unchanged; a persistently missing
+    parent directory still raises after the bounded retries."""
+    for attempt in range(20):
+        try:
+            return os.open(name, flags | os.O_CREAT, mode, dir_fd=dir_fd)
+        except FileNotFoundError:
+            if attempt == 19:
+                raise
+    raise AssertionError("unreachable")
+
+
 def _utc(value: object) -> datetime:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return _APPLE_EPOCH + timedelta(seconds=float(value))
@@ -230,7 +243,7 @@ class _PinnedDB:
         try:
             self._directory_identity = os.fstat(self.directory)
             self._check_directory()
-            self.fd = os.open(path.name, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=self.directory)
+            self.fd = _open_create(path.name, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=self.directory)
             self.identity = os.fstat(self.fd)
             self._check()
             os.fsync(self.directory)
@@ -490,7 +503,7 @@ class VaultDailyWriter:
     @contextmanager
     def _lock(self):
         with self._directory(self.hermes_home) as directory:
-            fd = os.open("vault-write.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
+            fd = _open_create("vault-write.lock", os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
             try:
                 info = os.fstat(fd)
                 if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
