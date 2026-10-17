@@ -14,6 +14,8 @@ import XCreenCore
     var selectedHermesModel: String { get }
     var modelDefaultStatus: String { get }
     var query: String { get set }
+    /// The question most recently sent; shown above the reply after the field clears.
+    var lastQuestion: String { get }
     var canAsk: Bool { get }
     var connected: Bool { get }
     var submissionMessage: String { get }
@@ -102,6 +104,13 @@ public struct Panel<Model: TrayPanelModel>: View {
                 Text(state.submissionMessage)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !state.lastQuestion.isEmpty {
+                Text("You: \(state.lastQuestion)")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
