@@ -21,9 +21,14 @@ The bundled Hermes runtime registers only the scoped xCreen tools:
 - latest/range OCR listing and timestamped coverage status
 - OCR search and nearby image lookup
 - native image loading
-- a writer that appends useful, source-bound insights to capture-date Daily notes when a vault is configured
+- read-only vault access (`xcreen_vault_read`, `xcreen_vault_list`) so the model can follow the vault's own conventions note and link existing notes
+- a note writer (`xcreen_note_write`) when a vault is configured
 
-A missing dated file may be created with a minimal heading in the existing Daily directory; executable templates are never evaluated. Entry receipts support crash reconciliation.
+The model writes like the user: short plain bullets with `[[wikilinks]]`, only for valuable items (decisions, commitments, milestones, things learned, people, ideas), never a log of apps or pages. A batch with nothing worth noting writes nothing and is recorded as skipped. Besides the capture-date Daily note it may add a dated bullet under a section of an existing note (e.g. `Projects/X.md`) or, sparingly, create a note in an existing folder.
+
+Write safety: vault-relative `.md` paths only, inside existing non-hidden folders; `Agent/`, `Archive/`, `Sources/`, templates, attachments, `.obsidian` and the vault root are refused; Daily writes go only to the capture-date note; bounded size per write; no-follow directory walk, hardlink/symlink rejection, atomic replace with a concurrent-change check. xCreen never deletes or rewrites user text: it inserts lines, or replaces a line it wrote itself (`revises`). Text with HTML comments, evidence ids or long hashes is rejected.
+
+Provenance lives outside the vault in xCreen's private receipt journal (`$HERMES_HOME/xcreen-receipts/`): batch id, note path, exact inserted text, its hash, the note's pre-write hash and evidence ids. Retries check the journal and whether the exact text is already present, so they never duplicate; edited or removed bullets become `uncertain` and are never re-added. `scripts/migrate-vault-notes.py --vault … [--dry-run]` moves the markup of older xCreen versions (`<!-- xcreen-entry … -->`) out of Daily notes into this journal.
 
 Native automatic turns prepare an immutable host-validated batch binding and complete only after explicit saved/skipped model results and host-verified effect receipts. Startup and read-only CLI/tray verification reconcile exact receipts without blind resend or history dependence. Expired raw evidence is stripped while bounded receipt/source-binding metadata remains. See [native durability](durable-native-processing.md) and [runtime receipts](runtime-receipts.md).
 

@@ -10,7 +10,7 @@ foreground window ──1 s──▶ Vision OCR ──(<90 % similar to last sav
         └────────────every 10 active s─────▶ images/*.png
                  300 active s / 30 images ──▶ pending batch
 pending batch ──image.attach_bytes ×30 + prompt.submit──▶ xCreen Hermes session
-xCreen session ──tool_call──▶ xcreen_search_ocr · xcreen_images_near · xcreen_view_image · xcreen_daily_note
+xCreen session ──tool_call──▶ xcreen_search_ocr · xcreen_images_near · xcreen_view_image · xcreen_vault_read/list · xcreen_note_write
 ```
 
 - **Evidence store** (`EvidenceStore`): private `0700` directories and `0600` atomic writes, with

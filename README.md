@@ -19,7 +19,7 @@ Looking for an open-source Rewind or Microsoft Recall alternative for Mac? xCree
 - **Menu-bar tray, Spotlight and CLI.** Ask questions about what you've seen from the tray, the macOS 26+ "Ask xCreen" Spotlight action or the "Search xCreen" row Spotlight offers under "Search in Apps" for any typed text (both fill the question in, you submit), or `xcreen ask` in a terminal.
 - **Local capture with dedup.** Runs Apple Vision OCR on the foreground window at most once per second and drops text that is ≥90% similar to the last snapshot. Saves a screenshot every 10 active seconds.
 - **Batches into one Hermes session.** Every 5 active minutes (or 30 images), a batch goes to a single persistent xCreen session in your Hermes Agent. It does not start a new chat each time.
-- **Sourced insights in your Daily notes.** The model appends only useful findings to that day's note in your Obsidian vault, each linked to its captured evidence. If nothing is worth saving, the batch is marked skipped.
+- **Notes that read like yours.** The model first reads your vault's own conventions (e.g. `Agent/Vault Conventions.md`), then adds only what's worth remembering — decisions, deadlines, milestones, people, ideas — as plain bullets with `[[wikilinks]]` in that day's Daily note, and a dated line in a related existing project/person/organisation note when relevant. No page-by-page activity log and no ids or HTML comments in your notes; provenance (evidence ids, exact text, hashes) stays in xCreen's private journal. A batch with nothing worth noting writes nothing.
 - **Integrity switch.** One switch, controlled only by you, stops all new screenshots and OCR. It is ON at first launch and keeps your choice across restarts.
 - **7-day local retention, any model.** Raw evidence is deleted after seven days. You can pick any model your Hermes setup has configured. The default for the xCreen session is Claude Haiku 5.5 on your Anthropic account.
 
@@ -60,10 +60,11 @@ Turn Integrity OFF from the tray when you want capture to start. See [INSTALL.md
 ## Privacy and safety
 
 - **What's captured** (only while Integrity is OFF and the Mac is unlocked and awake): screenshots and OCR text of the eligible foreground window.
-- **Where it's stored:** in private files under `~/Library/Application Support/xCreen`, outside your vault and outside this repository. This storage is not encrypted, so use FileVault. Only distilled, source-linked insights go into Daily notes.
+- **Where it's stored:** in private files under `~/Library/Application Support/xCreen`, outside your vault and outside this repository. This storage is not encrypted, so use FileVault. Only short distilled bullets go into your vault; their evidence links live in the private receipt journal under `~/.hermes/xcreen-receipts`, not in notes.
 - **Retention:** raw evidence expires after 7 days. Anything already sent to your model provider or saved in Hermes history follows their retention rules. Deletion does not guarantee forensic erasure.
 - **Excluded:** known password managers (1Password, Bitwarden, LastPass, Dashlane, KeePass, Apple Passwords, Keychain), System Settings, lock and login screens, and xCreen itself.
 - **NOT protected:** browser password fields, password-manager browser extensions and popovers, and incognito/private windows are **not detected or redacted**. Turn Integrity ON before sensitive browsing.
+- **Vault writes are confined:** Markdown only, inside existing vault folders; never `Agent/`, `Archive/`, templates or hidden folders (`.obsidian`), never outside the vault, bounded size, and xCreen never deletes or rewrites your text (it only adds lines or revises lines it wrote itself).
 - **Integrity is user-only:** only your tray or CLI action changes it. The model and screen content cannot turn capture on. Screen text is treated as untrusted evidence, never as instructions.
 
 Full rules and limits: [SECURITY.md](SECURITY.md) · [How it works](docs/how-it-works.md).
