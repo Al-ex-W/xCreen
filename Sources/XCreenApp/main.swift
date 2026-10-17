@@ -507,6 +507,7 @@ extension AppState: TrayPanelModel {}
     var item: NSStatusItem!
     let popover = NSPopover()
     private var controlServer: LocalControlServer?
+    private var handoffs = AskHandoffInbox()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
@@ -522,7 +523,10 @@ extension AppState: TrayPanelModel {}
         item.button?.action = #selector(toggle)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: Panel(state: state))
-
+        if let handoff = handoffs.markReady() {
+            // Let the status item get laid out before anchoring the popover to it.
+            DispatchQueue.main.async { [weak self] in self?.perform(handoff) }
+        }
     }
 
     @objc func toggle() {
@@ -538,13 +542,17 @@ extension AppState: TrayPanelModel {}
     func showPanel() { if !popover.isShown { toggle() } }
     func applicationWillTerminate(_ notification: Notification) { controlServer?.stop() }
 
+    /// A cold launch by URL (Spotlight/App Intent, `open xcreen://…`) delivers this before
+    /// applicationDidFinishLaunching: the status item does not exist yet and AppState must not be
+    /// constructed before the control-server lock. Buffer until launch completes.
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where AskShortcut.query(url) != nil {
-            if let query = AskShortcut.query(url) {
-                state.acceptURLQuery(query)
-                if !popover.isShown { toggle() }
-            }
-        }
+        if let handoff = handoffs.receive(urls: urls) { perform(handoff) }
+    }
+
+    /// Opens/fills the panel only; the user still submits the question.
+    private func perform(_ handoff: PanelHandoff) {
+        if case .ask(let question) = handoff { state.acceptURLQuery(question) }
+        showPanel()
     }
 }
 

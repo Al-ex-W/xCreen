@@ -12,7 +12,72 @@ public enum AskShortcut {
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let query = components.queryItems?.first(where: { $0.name == "query" })?.value,
               !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return InputBounds.prefix(query, maxUnicodeScalars: 8000)
+        return InputBounds.prefix(query, maxUnicodeScalars: maxQuestionScalars)
+    }
+
+    public static let maxQuestionScalars = 8_000
+
+    /// Builds the `xcreen://ask?query=` handoff URL. Nil for blank questions.
+    public static func url(question: String) -> URL? {
+        let bounded = InputBounds.prefix(question, maxUnicodeScalars: maxQuestionScalars)
+        guard !bounded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        var components = URLComponents()
+        components.scheme = "xcreen"
+        components.host = "ask"
+        components.queryItems = [URLQueryItem(name: "query", value: bounded)]
+        // URLQueryItem leaves '+' unescaped; encode it so no decoder can read it as a space.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        return components.url
+    }
+}
+
+extension AskShortcut {
+    /// Parameterless handoff: show the panel without changing the question field.
+    public static let openURL = URL(string: "xcreen://open")!
+}
+
+/// What an `xcreen://` URL asks the tray to do. Neither case submits a question.
+public enum PanelHandoff: Equatable {
+    case open
+    case ask(String)
+
+    public init?(url: URL) {
+        if let question = AskShortcut.query(url) { self = .ask(question); return }
+        guard url.scheme?.lowercased() == "xcreen", url.host?.lowercased() == "open" else { return nil }
+        self = .open
+    }
+}
+
+/// Holds a handoff until the app has finished launching. A cold launch by URL can deliver
+/// `application(_:open:)` before `applicationDidFinishLaunching`, when the tray does not exist yet.
+/// Only opens/fills the panel; submission stays an explicit user action.
+public struct AskHandoffInbox {
+    private var ready = false
+    private var pending: PanelHandoff?
+    public init() {}
+
+    /// Returns the handoff to perform now, or nil when buffered.
+    public mutating func receive(_ handoff: PanelHandoff) -> PanelHandoff? {
+        guard ready else {
+            // A later bare "open" must not discard a pending question.
+            if case .ask = pending, handoff == .open { return nil }
+            pending = handoff
+            return nil
+        }
+        return handoff
+    }
+
+    public mutating func receive(urls: [URL]) -> PanelHandoff? {
+        let handoffs = urls.compactMap(PanelHandoff.init(url:))
+        guard let chosen = handoffs.last(where: { if case .ask = $0 { return true } else { return false } }) ?? handoffs.last else { return nil }
+        return receive(chosen)
+    }
+
+    /// Marks launch complete and returns (once) the latest buffered handoff.
+    public mutating func markReady() -> PanelHandoff? {
+        ready = true
+        defer { pending = nil }
+        return pending
     }
 }
 
