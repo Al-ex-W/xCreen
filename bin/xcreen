@@ -15,12 +15,14 @@ HELP = '''usage: xcreen [--json] COMMAND
   integrity [get|on|off]          off is explicit capture consent, subject to macOS gates
   session visibility [get|on|off]  show/hide the same Hermes session (default off)
   connection connect|disconnect|reconnect  (also accepted as top-level commands)
-  models [list] | model select PROVIDER MODEL
+  models [list] | model select PROVIDER MODEL   (select also saves the xCreen default)
+  model default [get] | model default PROVIDER MODEL  xCreen-session default only
   settings [show] | settings set python|root|vault VALUE
   settings autodetect | autodetect
   ask QUESTION [--wait-ms 0..30000]  explicit submission to the existing xCreen session
   history [--after CURSOR]        bounded sanitized history pages
   batches [--after BATCH_ID]      up to 20 durable batch metadata records
+  batches retry                   verify, then re-queue only receipt-proven zero-effect batches
   verify                         read-only receipt reconciliation; no inference/note writes
   cancel
   images [list|open ID]           reply attachment metadata/open through the app
@@ -43,6 +45,8 @@ def parse_command(args):
         name, rest = rest[0], []
     if name in ('status', 'connect', 'disconnect', 'reconnect', 'cancel', 'history', 'verify', 'quit', 'autodetect') and not rest:
         return {'command': name}
+    if name == 'batches' and rest == ['retry']:
+        return {'command': 'retrybatches'}
     if name in ('history', 'batches'):
         if not rest:
             return {'command': name}
@@ -54,6 +58,10 @@ def parse_command(args):
         return {'command': name, 'value': rest[0]}
     if name == 'models' and rest in ([], ['list']):
         return {'command': name}
+    if name == 'model' and rest in (['default'], ['default', 'get']):
+        return {'command': 'modeldefault'}
+    if name == 'model' and len(rest) == 3 and rest[0] == 'default':
+        return {'command': 'modeldefault', 'provider': rest[1], 'model': rest[2]}
     if name == 'model' and len(rest) == 3 and rest[0] == 'select':
         return {'command': name, 'provider': rest[1], 'model': rest[2]}
     if name == 'settings':
