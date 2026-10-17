@@ -47,6 +47,32 @@ final class HermesGatewayRuntimeTests: XCTestCase {
         await gateway.stop()
     }
 
+    /// A long session's resume transcript exceeds the 1 MiB frame cap; xCreen must not request it.
+    func testResumeOmitsTranscriptSoLongSessionsStillConnect() async throws {
+        let script = try makeGatewayScript(resumeResult: #"{"session_id":"eb085cde","resumed":"stored-xcreen","message_count":219}"#)
+        defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
+        let gateway = HermesGateway(defaultDeadline: 2)
+        try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
+        let identity = try await gateway.open(storedSessionID: "stored-xcreen")
+        XCTAssertEqual(identity.runtimeID, "eb085cde")
+        await gateway.stop()
+    }
+
+    /// The session-scoped switch must use config.set (works without a live agent) and verify its ack.
+    func testSwitchModelUsesConfigSetAndVerifiesSessionScope() async throws {
+        let script = try makeGatewayScript()
+        defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
+        let gateway = HermesGateway(defaultDeadline: 2)
+        try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
+        let session = try await gateway.open(storedSessionID: "stored-xcreen")
+        _ = try await gateway.switchModel(sessionID: session.runtimeID, model: "anthropic/claude-haiku-5.5", provider: "openrouter")
+        do {
+            _ = try await gateway.switchModel(sessionID: session.runtimeID, model: "unknown/model", provider: "openrouter")
+            XCTFail("rejected switch must throw")
+        } catch {}
+        await gateway.stop()
+    }
+
     /// Real `session.resume` (tui_gateway/methods_session.py) reports the stored id as `resumed`.
     func testResumeAcceptsRealResumedKey() async throws {
         let script = try makeGatewayScript(resumeResult: #"{"session_id":"eb085cde","resumed":"stored-xcreen","message_count":15}"#)
@@ -108,8 +134,20 @@ for line in sys.stdin:
     request = json.loads(line)
     method = request.get("method")
     rid = request.get("id")
-    if method == "session.resume": result = json.loads(RESUME)
+    if method == "session.resume":
+        result = json.loads(RESUME)
+        # Real Hermes returns the whole transcript unless omit_messages is set;
+        # a long xCreen session exceeds the 1 MiB stdout frame cap.
+        if not request['params'].get('omit_messages'):
+            result["messages"] = [{"role": "user", "text": "x" * 1100000}]
     elif method == "gateway.capabilities": result = {"per_session_exclusive_submit":True}
+    elif method == "config.set":
+        # Real tui_gateway/methods_config_set.py: a lazy resumed session has no live agent, so
+        # only config.set pins a session model_override; slash.exec /model is a silent no-op.
+        value = request['params']['value']
+        model = value.split(' --')[0]
+        if model == "unknown/model": print(json.dumps({"jsonrpc":"2.0","id":rid,"error":{"code":5001,"message":"model not found"}}), flush=True); continue
+        result = {"key":"model","value":model,"warning":"","confirm_required":False,"confirm_message":"","scope":"session"}
     elif method == "session.set_hidden":
         assert request['params']['session_id'] == 'runtime-xcreen'
         assert type(request['params']['hidden']) is bool

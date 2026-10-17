@@ -4,6 +4,9 @@ import CoreFoundation
 public enum HermesGatewayError: LocalizedError, Equatable {
     case invalidLaunch, unavailable, deadlineExceeded, protocolFailure, cancelled
     case remoteFailure(String)
+    /// The host closed the turn with a provider/model failure (status:error). This is
+    /// not evidence of absent effects; only a host receipt can prove that.
+    case providerFailure(rateLimited: Bool)
     public var errorDescription: String? {
         switch self {
         case .invalidLaunch: return "A local Hermes gateway launcher is required."
@@ -12,6 +15,7 @@ public enum HermesGatewayError: LocalizedError, Equatable {
         case .protocolFailure: return "Hermes gateway returned an invalid response."
         case .cancelled: return "The xCreen turn was cancelled before completion."
         case .remoteFailure(let message): return "Hermes gateway rejected the request: \(message)"
+        case .providerFailure(let limited): return limited ? "The model provider rate-limited the xCreen turn." : "The model provider failed the xCreen turn."
         }
     }
 }
@@ -143,7 +147,7 @@ public actor HermesGateway: HermesGatewayTransport {
     private func broadcast(_ event: HermesGatewayEvent) { subscribers.values.forEach { $0.yield(event) } }
     public func gatewayCapabilities() async throws -> HermesGatewayCapabilities { let object = try decodeObject(await request("gateway.capabilities", [:])); return .init(perSessionExclusiveSubmit: object["per_session_exclusive_submit"] as? Bool ?? false) }
     public func open(storedSessionID: String?) async throws -> HermesSessionIdentity {
-        let reply = try await request(storedSessionID?.isEmpty == false ? "session.resume" : "session.create", storedSessionID?.isEmpty == false ? ["session_id": storedSessionID!, "lazy": true, "inline_images": false] : ["source": "desktop", "title": "xCreen", "hidden": true, "close_on_disconnect": false])
+        let reply = try await request(storedSessionID?.isEmpty == false ? "session.resume" : "session.create", storedSessionID?.isEmpty == false ? ["session_id": storedSessionID!, "lazy": true, "inline_images": false, "omit_messages": true] : ["source": "desktop", "title": "xCreen", "hidden": true, "close_on_disconnect": false])
         let object = try decodeObject(reply)
         // session.create and live re-attach return `stored_session_id`; a cold session.resume returns `resumed`.
         let stored = (object["stored_session_id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? object["resumed"] as? String
@@ -176,7 +180,16 @@ public actor HermesGateway: HermesGatewayTransport {
               let key = reply["session_key"] as? String, !key.isEmpty else { throw HermesGatewayError.protocolFailure }
         return flag.boolValue
     }
-    public func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { guard validText(model, max: 256), validText(provider, max: 128) else { throw HermesGatewayError.protocolFailure }; return try await request("slash.exec", ["session_id": sessionID, "command": "/model \(model) --provider \(provider) --session"]) }
+    public func switchModel(sessionID: String, model: String, provider: String) async throws -> Data { guard validText(model, max: 256), validText(provider, max: 128) else { throw HermesGatewayError.protocolFailure };
+        // config.set pins a per-session model_override even on a lazy resumed session with no live
+        // agent (tui_gateway/methods_config_set.py); slash.exec /model silently no-ops there.
+        let reply = try await request("config.set", ["session_id": sessionID, "key": "model", "value": "\(model) --provider \(provider) --session"])
+        let object = try decodeObject(reply)
+        guard object["value"] as? String == model, object["scope"] as? String == "session", object["confirm_required"] as? Bool != true else {
+            throw HermesGatewayError.remoteFailure("Hermes did not confirm a session-scoped switch to \(provider) · \(model)")
+        }
+        return reply
+    }
     public func compress(sessionID: String) async throws -> Data { try await request("session.compress", ["session_id": sessionID]) }
     public func submit(sessionID: String, text: String) async throws -> Data { guard validText(text, max: 32_000) else { throw HermesGatewayError.protocolFailure }; return try await request("prompt.submit", ["session_id": sessionID, "text": text]) }
     public func submitBatch(sessionID: String, text: String, images: [HermesEvidenceAttachment], transmissionAllowed: @escaping @Sendable () async -> Bool) async throws {
