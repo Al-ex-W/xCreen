@@ -53,6 +53,26 @@ public enum PanelHandoff: Equatable {
     }
 }
 
+extension PanelHandoff {
+    /// In-process App Intent delivery: a bounded question, or just open the panel when blank.
+    public init(question: String) {
+        let bounded = InputBounds.prefix(question, maxUnicodeScalars: AskShortcut.maxQuestionScalars)
+        self = bounded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .open : .ask(bounded)
+    }
+}
+
+/// Ask-field rules for the tray: prefill is bounded; the field clears only once a question was admitted.
+public enum AskFieldPolicy {
+    public static func prefill(_ value: String) -> String {
+        InputBounds.prefix(value, maxUnicodeScalars: AskShortcut.maxQuestionScalars)
+    }
+
+    /// Clears the field if it still holds the admitted question; keeps anything typed since.
+    public static func fieldAfterAdmission(current: String, submitted: String) -> String {
+        current.trimmingCharacters(in: .whitespacesAndNewlines) == submitted ? "" : current
+    }
+}
+
 /// Holds a handoff until the app has finished launching. A cold launch by URL can deliver
 /// `application(_:open:)` before `applicationDidFinishLaunching`, when the tray does not exist yet.
 /// Only opens/fills the panel; submission stays an explicit user action.

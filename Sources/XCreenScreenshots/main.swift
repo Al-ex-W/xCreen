@@ -21,6 +21,7 @@ import XCreenUI
     var canAsk: Bool { !query.isEmpty }
     let connected = true
     let submissionMessage = "Hermes response complete."
+    let lastQuestion = ""
     let streamedReply = """
     From about 10:05 to 11:50 you were mostly in Xcode on the demo app's onboarding screen, \
     fixing the layout of the permissions step. Around 11:20 you read the SwiftUI Layout docs in \
