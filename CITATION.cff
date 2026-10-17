@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use or refer to xCreen, please cite it using these metadata."
+type: software
+title: "xCreen"
+abstract: "Free, open-source (Apache-2.0) screen memory app for macOS. Local Apple Vision OCR of the foreground window, 7-day local retention, and source-linked insights written to Obsidian Daily notes by the user's own Hermes Agent."
+authors:
+  - family-names: "Wahlström"
+    given-names: "Alexander"
+repository-code: "https://github.com/Al-ex-W/xCreen"
+url: "https://al-ex-w.github.io/xCreen/"
+license: Apache-2.0
+version: "0.1.0"
+date-released: "2026-10-17"
+keywords:
+  - screen memory
+  - macOS
+  - OCR
+  - Obsidian
+  - Hermes Agent
+  - personal knowledge management
+  - Rewind alternative
+  - Microsoft Recall alternative
+  - local-first
