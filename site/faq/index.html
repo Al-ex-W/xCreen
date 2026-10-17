@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>xCreen FAQ — open-source screen memory for Mac, Rewind alternative</title>
+<meta name="description" content="Answers about xCreen, the open-source screen memory app for Mac: Rewind alternatives, cloud vs local AI, Obsidian, models, price, retention, pausing capture.">
+<link rel="canonical" href="https://al-ex-w.github.io/xCreen/faq/">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="xCreen">
+<meta property="og:title" content="xCreen FAQ">
+<meta property="og:description" content="Answers about xCreen, the open-source screen memory app for Mac: Rewind alternatives, cloud vs local AI, Obsidian, models, price, retention, pausing capture.">
+<meta property="og:url" content="https://al-ex-w.github.io/xCreen/faq/">
+<meta property="og:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="xCreen: open-source screen memory for macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="xCreen FAQ">
+<meta name="twitter:description" content="Answers about xCreen, the open-source screen memory app for Mac: Rewind alternatives, cloud vs local AI, Obsidian, models, price, retention, pausing capture.">
+<meta name="twitter:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "url": "https://al-ex-w.github.io/xCreen/faq/",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is there an open-source Rewind alternative for Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes: xCreen is a free, Apache-2.0 screen memory app for macOS 14+ that captures what you see with local OCR and lets your own Hermes Agent write sourced insights into your Obsidian Daily notes. It needs a working Hermes Agent install and is a developer preview. Retrace (MIT, macOS 13+ on Apple Silicon) is another open-source option for Mac, and screenpipe is source-available under its own commercial license. See the sourced comparison."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What happened to Rewind AI?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Rewind shut down: its Mac app stopped capturing on December 19, 2025, after Meta acquired Limitless, according to 9to5Mac. The rewind.ai domain now belongs to an unaffiliated site. Former users looking for a replacement can compare xCreen, screenpipe, Retrace, Goldfish and Microsoft Recall on the alternatives page."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is there an app that remembers what I did on my screen on a Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, that is what screen memory apps such as xCreen do: xCreen reads the foreground window with local Apple Vision OCR, saves a screenshot every 10 active seconds, and lets you ask questions like \"What was the error I saw in the build log this morning?\". You can ask from the menu-bar tray, the macOS 26+ \"Ask xCreen\" Spotlight action, or xcreen ask in a terminal. Raw evidence is kept on your Mac for seven days; useful findings are written into your Obsidian Daily notes with links back to their evidence."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does xCreen send my screenshots to the cloud?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Only if the model route you chose in Hermes is a cloud provider: OCR and storage are local, but every 5 active minutes a batch of captured evidence goes to whichever provider your Hermes route uses, and so do your questions. That provider's retention rules then apply. xCreen has no server of its own and stores no API keys. For on-device inference, configure a local model in Hermes. While the Integrity switch is ON, no new screenshots, OCR or automatic batches happen. Details: SECURITY.md."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does xCreen work with Obsidian?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes: when you configure a vault, the model appends useful, source-linked insights to that day's note in your existing Obsidian Daily notes folder. If nothing in a batch is worth saving, the batch is marked skipped and nothing is written. Raw screenshots and OCR stay outside the vault in ~/Library/Application Support/xCreen. A missing dated note may be created with a minimal heading; templates are never executed. Setting the vault to empty (xcreen settings set vault \"\") disables Daily-note writing."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which AI models can xCreen use?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Any model your Hermes Agent setup has configured: xCreen lists Hermes's configured routes and lets you pick one for the xCreen session. The default for the xCreen session is Claude Haiku 5.5 via OpenRouter (openrouter / anthropic/claude-haiku-5.5). Changing it with the tray picker or xcreen model default PROVIDER MODEL affects only the xCreen session, never Hermes's global default. An unavailable model is reported rather than silently replaced. Check that your chosen route accepts images."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is xCreen free?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes: xCreen is free and open source under the Apache-2.0 license, including for commercial use. Forks that redistribute it must keep the Apache notices; no advertising credit is required. You pay only for whatever model provider you configure in Hermes, if any."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does xCreen work on Windows or Linux?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No, xCreen is macOS-only (macOS 14 or later; the Spotlight action needs macOS 26). If you need Windows or Linux, screenpipe lists macOS, Windows and Linux support; Goldfish lists macOS and Windows; Microsoft Recall runs on Windows 11 Copilot+ PCs. See the comparison."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is xCreen different from screenpipe?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "xCreen is a Mac-only, Apache-2.0 app that feeds screen context into your own Hermes Agent and writes sourced insights into Obsidian Daily notes, while screenpipe is a cross-platform (macOS, Windows, Linux) recorder that also transcribes audio, under a source-available commercial license. screenpipe captures via the Accessibility tree with OCR fallback and can use local or cloud AI. xCreen captures foreground-window screenshots with local Vision OCR, does not record audio, and requires Hermes Agent. Choose screenpipe if you need Windows/Linux or audio. Sources are on the alternatives page."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is xCreen different from Microsoft Recall?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Microsoft Recall is a built-in Windows 11 feature for Copilot+ PCs that processes snapshots locally, while xCreen is an open-source macOS app whose model inference goes to whichever provider your Hermes Agent uses. xCreen also writes distilled findings into your Obsidian notes rather than only keeping a searchable timeline."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How long are screenshots kept?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Seven days: raw screenshots and OCR text expire automatically after seven days. Anything already sent to your model provider or saved in Hermes history follows their retention rules, and insights written into your Daily notes stay until you delete them. Local storage uses private file permissions but is not encrypted, so use FileVault. Deletion does not guarantee forensic erasure."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I pause capture?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes: the Integrity switch in the tray, or xcreen integrity on, stops all new screenshots, OCR and automatic batches. Integrity is ON (capture off) at first launch and keeps your choice across restarts. Only your own tray or CLI action changes it; the model and screen content cannot turn capture on. Capture also pauses automatically when the Mac is locked or asleep, or when an excluded app is in front."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does xCreen capture passwords?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It can: known password-manager apps, System Settings and lock/login screens are excluded, but browser password fields, password-manager browser extensions and private/incognito windows are not detected or redacted. Anything visible on screen in an eligible app can end up in screenshots, OCR and model batches. Turn Integrity ON before sensitive browsing. The exact exclusion rules are in SECURITY.md."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Do I need Hermes Agent to use xCreen?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, a working Hermes Agent install is required: xCreen does not include a model or keep API keys and uses your Hermes profile read-only. If you don't want an agent dependency, Retrace or screenpipe may suit you better."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I install xCreen?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Clone the repository and run the installer: git clone https://github.com/Al-ex-W/xCreen.git && cd xCreen && bash scripts/install.sh. You need macOS 14+, Xcode/Swift, Python 3 and Hermes Agent. The build is not notarized; use a stable signing identity so macOS keeps the Screen Recording permission. A prebuilt ad-hoc signed zip is on release v0.1.0. Full steps, including uninstalling: INSTALL.md."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<header>
+  <a class="brand" href="../">xCreen</a>
+  <nav><a href="../alternatives/">Alternatives</a><a href="./">FAQ</a><a href="https://github.com/Al-ex-W/xCreen">GitHub</a></nav>
+</header>
+<main>
+<h1>xCreen FAQ</h1>
+<p class="lead">Short, direct answers about xCreen, the free, open-source (Apache-2.0) screen memory app for macOS. Details link to the documentation in the <a href="https://github.com/Al-ex-W/xCreen">repository</a>.</p>
+<ul>
+  <li><a href="#is-there-an-open-source-rewind-alternative-for-mac">Is there an open-source Rewind alternative for Mac?</a></li>
+  <li><a href="#what-happened-to-rewind-ai">What happened to Rewind AI?</a></li>
+  <li><a href="#is-there-an-app-that-remembers-what-i-did-on-my-screen-on-a-mac">Is there an app that remembers what I did on my screen on a Mac?</a></li>
+  <li><a href="#does-xcreen-send-my-screenshots-to-the-cloud">Does xCreen send my screenshots to the cloud?</a></li>
+  <li><a href="#does-xcreen-work-with-obsidian">Does xCreen work with Obsidian?</a></li>
+  <li><a href="#which-ai-models-can-xcreen-use">Which AI models can xCreen use?</a></li>
+  <li><a href="#is-xcreen-free">Is xCreen free?</a></li>
+  <li><a href="#does-xcreen-work-on-windows-or-linux">Does xCreen work on Windows or Linux?</a></li>
+  <li><a href="#how-is-xcreen-different-from-screenpipe">How is xCreen different from screenpipe?</a></li>
+  <li><a href="#how-is-xcreen-different-from-microsoft-recall">How is xCreen different from Microsoft Recall?</a></li>
+  <li><a href="#how-long-are-screenshots-kept">How long are screenshots kept?</a></li>
+  <li><a href="#can-i-pause-capture">Can I pause capture?</a></li>
+  <li><a href="#does-xcreen-capture-passwords">Does xCreen capture passwords?</a></li>
+  <li><a href="#do-i-need-hermes-agent-to-use-xcreen">Do I need Hermes Agent to use xCreen?</a></li>
+  <li><a href="#how-do-i-install-xcreen">How do I install xCreen?</a></li>
+</ul>
+
+<h2 id="is-there-an-open-source-rewind-alternative-for-mac">Is there an open-source Rewind alternative for Mac?</h2>
+<p><strong>Yes: xCreen is a free, Apache-2.0 screen memory app for macOS 14+ that captures what you see with local OCR and lets your own Hermes Agent write sourced insights into your Obsidian Daily notes.</strong></p>
+<p>It needs a working <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> install and is a developer preview. Retrace (MIT, macOS 13+ on Apple Silicon) is another open-source option for Mac, and screenpipe is source-available under its own commercial license. See the <a href="../alternatives/">sourced comparison</a>.</p>
+
+<h2 id="what-happened-to-rewind-ai">What happened to Rewind AI?</h2>
+<p><strong>Rewind shut down: its Mac app stopped capturing on December 19, 2025, after Meta acquired Limitless, according to <a href="https://9to5mac.com/2025/12/05/rewind-limitless-meta-acquisition/">9to5Mac</a>.</strong></p>
+<p>The rewind.ai domain now belongs to an <a href="https://rewind.ai/what-happened-to-rewind/">unaffiliated site</a>. Former users looking for a replacement can compare xCreen, screenpipe, Retrace, Goldfish and Microsoft Recall on the <a href="../alternatives/">alternatives page</a>.</p>
+
+<h2 id="is-there-an-app-that-remembers-what-i-did-on-my-screen-on-a-mac">Is there an app that remembers what I did on my screen on a Mac?</h2>
+<p><strong>Yes, that is what screen memory apps such as xCreen do: xCreen reads the foreground window with local Apple Vision OCR, saves a screenshot every 10 active seconds, and lets you ask questions like "What was the error I saw in the build log this morning?".</strong></p>
+<p>You can ask from the menu-bar tray, the macOS 26+ "Ask xCreen" Spotlight action, or <code>xcreen ask</code> in a terminal. Raw evidence is kept on your Mac for seven days; useful findings are written into your Obsidian Daily notes with links back to their evidence.</p>
+
+<h2 id="does-xcreen-send-my-screenshots-to-the-cloud">Does xCreen send my screenshots to the cloud?</h2>
+<p><strong>Only if the model route you chose in Hermes is a cloud provider: OCR and storage are local, but every 5 active minutes a batch of captured evidence goes to whichever provider your Hermes route uses, and so do your questions.</strong></p>
+<p>That provider's retention rules then apply. xCreen has no server of its own and stores no API keys. For on-device inference, configure a local model in Hermes. While the Integrity switch is ON, no new screenshots, OCR or automatic batches happen. Details: <a href="https://github.com/Al-ex-W/xCreen/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+
+<h2 id="does-xcreen-work-with-obsidian">Does xCreen work with Obsidian?</h2>
+<p><strong>Yes: when you configure a vault, the model appends useful, source-linked insights to that day's note in your existing Obsidian Daily notes folder.</strong></p>
+<p>If nothing in a batch is worth saving, the batch is marked skipped and nothing is written. Raw screenshots and OCR stay outside the vault in <code>~/Library/Application Support/xCreen</code>. A missing dated note may be created with a minimal heading; templates are never executed. Setting the vault to empty (<code>xcreen settings set vault ""</code>) disables Daily-note writing.</p>
+
+<h2 id="which-ai-models-can-xcreen-use">Which AI models can xCreen use?</h2>
+<p><strong>Any model your Hermes Agent setup has configured: xCreen lists Hermes's configured routes and lets you pick one for the xCreen session.</strong></p>
+<p>The default for the xCreen session is Claude Haiku 5.5 via OpenRouter (<code>openrouter</code> / <code>anthropic/claude-haiku-5.5</code>). Changing it with the tray picker or <code>xcreen model default PROVIDER MODEL</code> affects only the xCreen session, never Hermes's global default. An unavailable model is reported rather than silently replaced. Check that your chosen route accepts images.</p>
+
+<h2 id="is-xcreen-free">Is xCreen free?</h2>
+<p><strong>Yes: xCreen is free and open source under the <a href="https://github.com/Al-ex-W/xCreen/blob/main/LICENSE">Apache-2.0 license</a>, including for commercial use.</strong></p>
+<p>Forks that redistribute it must keep the Apache notices; no advertising credit is required. You pay only for whatever model provider you configure in Hermes, if any.</p>
+
+<h2 id="does-xcreen-work-on-windows-or-linux">Does xCreen work on Windows or Linux?</h2>
+<p><strong>No, xCreen is macOS-only (macOS 14 or later; the Spotlight action needs macOS 26).</strong></p>
+<p>If you need Windows or Linux, screenpipe lists macOS, Windows and Linux support; Goldfish lists macOS and Windows; Microsoft Recall runs on Windows 11 Copilot+ PCs. See the <a href="../alternatives/">comparison</a>.</p>
+
+<h2 id="how-is-xcreen-different-from-screenpipe">How is xCreen different from screenpipe?</h2>
+<p><strong>xCreen is a Mac-only, Apache-2.0 app that feeds screen context into your own Hermes Agent and writes sourced insights into Obsidian Daily notes, while screenpipe is a cross-platform (macOS, Windows, Linux) recorder that also transcribes audio, under a source-available commercial license.</strong></p>
+<p>screenpipe captures via the Accessibility tree with OCR fallback and can use local or cloud AI. xCreen captures foreground-window screenshots with local Vision OCR, does not record audio, and requires Hermes Agent. Choose screenpipe if you need Windows/Linux or audio. Sources are on the <a href="../alternatives/#sources">alternatives page</a>.</p>
+
+<h2 id="how-is-xcreen-different-from-microsoft-recall">How is xCreen different from Microsoft Recall?</h2>
+<p><strong>Microsoft Recall is a built-in Windows 11 feature for Copilot+ PCs that processes snapshots locally, while xCreen is an open-source macOS app whose model inference goes to whichever provider your Hermes Agent uses.</strong></p>
+<p>xCreen also writes distilled findings into your Obsidian notes rather than only keeping a searchable timeline.</p>
+
+<h2 id="how-long-are-screenshots-kept">How long are screenshots kept?</h2>
+<p><strong>Seven days: raw screenshots and OCR text expire automatically after seven days.</strong></p>
+<p>Anything already sent to your model provider or saved in Hermes history follows their retention rules, and insights written into your Daily notes stay until you delete them. Local storage uses private file permissions but is not encrypted, so use FileVault. Deletion does not guarantee forensic erasure.</p>
+
+<h2 id="can-i-pause-capture">Can I pause capture?</h2>
+<p><strong>Yes: the Integrity switch in the tray, or <code>xcreen integrity on</code>, stops all new screenshots, OCR and automatic batches.</strong></p>
+<p>Integrity is ON (capture off) at first launch and keeps your choice across restarts. Only your own tray or CLI action changes it; the model and screen content cannot turn capture on. Capture also pauses automatically when the Mac is locked or asleep, or when an excluded app is in front.</p>
+
+<h2 id="does-xcreen-capture-passwords">Does xCreen capture passwords?</h2>
+<p><strong>It can: known password-manager apps, System Settings and lock/login screens are excluded, but browser password fields, password-manager browser extensions and private/incognito windows are not detected or redacted.</strong></p>
+<p>Anything visible on screen in an eligible app can end up in screenshots, OCR and model batches. Turn Integrity ON before sensitive browsing. The exact exclusion rules are in <a href="https://github.com/Al-ex-W/xCreen/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+
+<h2 id="do-i-need-hermes-agent-to-use-xcreen">Do I need Hermes Agent to use xCreen?</h2>
+<p><strong>Yes, a working <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> install is required: xCreen does not include a model or keep API keys and uses your Hermes profile read-only.</strong></p>
+<p>If you don't want an agent dependency, Retrace or screenpipe may suit you better.</p>
+
+<h2 id="how-do-i-install-xcreen">How do I install xCreen?</h2>
+<p><strong>Clone the repository and run the installer: <code>git clone https://github.com/Al-ex-W/xCreen.git &amp;&amp; cd xCreen &amp;&amp; bash scripts/install.sh</code>.</strong></p>
+<p>You need macOS 14+, Xcode/Swift, Python 3 and Hermes Agent. The build is not notarized; use a stable signing identity so macOS keeps the Screen Recording permission. A prebuilt ad-hoc signed zip is on <a href="https://github.com/Al-ex-W/xCreen/releases/tag/v0.1.0">release v0.1.0</a>. Full steps, including uninstalling: <a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">INSTALL.md</a>.</p>
+</main>
+<footer>
+  <p>xCreen · <a href="https://github.com/Al-ex-W/xCreen/blob/main/LICENSE">Apache-2.0</a> · © Alexander Wahlström · <a href="https://github.com/Al-ex-W/xCreen">GitHub</a>. No tracking or analytics on this site.</p>
+</footer>
+</body>
+</html>

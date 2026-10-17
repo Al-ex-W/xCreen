@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>xCreen — open-source screen memory for macOS (Rewind / Recall alternative)</title>
+<meta name="description" content="Free, open-source (Apache-2.0) screen memory app for macOS: local OCR, 7-day local retention, sourced insights in Obsidian Daily notes via your Hermes Agent.">
+<link rel="canonical" href="https://al-ex-w.github.io/xCreen/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<link rel="alternate" type="text/plain" title="llms.txt" href="llms.txt">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="xCreen">
+<meta property="og:title" content="xCreen — open-source screen memory for macOS">
+<meta property="og:description" content="Free, open-source (Apache-2.0) screen memory for macOS: local OCR, 7-day local retention, sourced insights in your Obsidian Daily notes via your own Hermes Agent.">
+<meta property="og:url" content="https://al-ex-w.github.io/xCreen/">
+<meta property="og:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="xCreen: open-source screen memory for macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="xCreen — open-source screen memory for macOS">
+<meta name="twitter:description" content="Free, open-source (Apache-2.0) screen memory for macOS: local OCR, 7-day local retention, sourced insights in your Obsidian Daily notes via your own Hermes Agent.">
+<meta name="twitter:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "xCreen",
+  "alternateName": "xCreen screen memory",
+  "description": "Free, open-source (Apache-2.0) screen memory app for macOS. Runs local Apple Vision OCR on the foreground window, keeps screenshots for 7 days in private local storage, and lets your own Hermes Agent append useful, source-linked insights to your Obsidian Daily notes.",
+  "url": "https://al-ex-w.github.io/xCreen/",
+  "applicationCategory": "ProductivityApplication",
+  "operatingSystem": "macOS 14+",
+  "softwareVersion": "0.1.0",
+  "releaseNotes": "https://github.com/Al-ex-W/xCreen/releases/tag/v0.1.0",
+  "downloadUrl": "https://github.com/Al-ex-W/xCreen/releases/tag/v0.1.0",
+  "installUrl": "https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md",
+  "codeRepository": "https://github.com/Al-ex-W/xCreen",
+  "sameAs": ["https://github.com/Al-ex-W/xCreen"],
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "isAccessibleForFree": true,
+  "image": "https://al-ex-w.github.io/xCreen/assets/social-preview.png",
+  "screenshot": "https://al-ex-w.github.io/xCreen/assets/tray.png",
+  "softwareRequirements": "macOS 14 or later; Hermes Agent (https://github.com/NousResearch/hermes-agent); Xcode/Swift and Python 3 to build from source",
+  "featureList": [
+    "Local Apple Vision OCR of the foreground window, at most once per second, with near-duplicate dropping",
+    "Screenshot every 10 active seconds, raw evidence deleted after 7 days",
+    "Batches every 5 active minutes to one persistent Hermes Agent session",
+    "Source-linked insights appended to Obsidian Daily notes",
+    "User-only Integrity switch that stops capture",
+    "Menu-bar tray, macOS 26+ Spotlight action and xcreen CLI"
+  ],
+  "keywords": "screen memory, Rewind alternative, Microsoft Recall alternative, screenpipe alternative, Retrace alternative, Goldfish alternative, Obsidian, OCR, macOS, Hermes Agent",
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+  "author": {"@type": "Person", "name": "Alexander Wahlström", "url": "https://github.com/Al-ex-W"}
+}
+</script>
+</head>
+<body>
+<header>
+  <a class="brand" href="./">xCreen</a>
+  <nav><a href="alternatives/">Alternatives</a><a href="faq/">FAQ</a><a href="https://github.com/Al-ex-W/xCreen">GitHub</a></nav>
+</header>
+<main>
+<div class="hero">
+  <div>
+    <h1>xCreen: open-source screen memory for macOS</h1>
+    <p class="lead">xCreen is a free, open-source (Apache-2.0) screen memory app for macOS. It reads what is on your screen with local OCR, keeps the raw evidence on your Mac for seven days, and has your own <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> write useful, source-linked insights into your Obsidian Daily notes.</p>
+    <p>It is an open-source alternative to Rewind, Retrace, screenpipe, Goldfish and Microsoft Recall for people who already run Hermes Agent on a Mac. You can ask it what you saw from the menu bar, Spotlight or the terminal.</p>
+    <p class="note"><strong>Developer preview (v0.1.0).</strong> Not notarized and not security-audited. Capture is off by default.</p>
+    <p class="cta"><a href="https://github.com/Al-ex-W/xCreen">Source on GitHub</a><a href="https://github.com/Al-ex-W/xCreen/releases/tag/v0.1.0">Release v0.1.0</a><a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">Install guide</a></p>
+  </div>
+  <figure>
+    <img src="assets/tray.png" width="410" height="786" alt="xCreen menu-bar tray panel showing the Integrity switch, the Hermes session model picker, the question 'What was I working on before lunch?' and a sourced answer with a timestamped attachment">
+    <figcaption><small>The real tray view rendered with synthetic demo data, not a capture of anyone's screen.</small></figcaption>
+  </figure>
+</div>
+
+<h2 id="what-it-does">What it does</h2>
+<ul>
+  <li><strong>Ask about what you've seen.</strong> From the menu-bar tray, the macOS 26+ "Ask xCreen" Spotlight action (it fills the question in, you submit), or <code>xcreen ask</code> in a terminal.</li>
+  <li><strong>Local capture with dedup.</strong> Apple Vision OCR runs on the foreground window at most once per second, and text that is at least 90% similar to the last snapshot is dropped. A screenshot is saved every 10 active seconds.</li>
+  <li><strong>One Hermes session, not a new chat each time.</strong> Every 5 active minutes (or 30 images), a batch goes to a single persistent xCreen session in your Hermes Agent.</li>
+  <li><strong>Sourced insights in your Daily notes.</strong> The model appends only useful findings to that day's note in your Obsidian vault, each linked to its captured evidence. If nothing is worth saving, the batch is marked skipped.</li>
+  <li><strong>Integrity switch.</strong> One switch, controlled only by you, stops all new screenshots and OCR. It is ON at first launch and keeps your choice across restarts.</li>
+  <li><strong>Any model you configure.</strong> Pick any model your Hermes setup has configured. The xCreen session default is Claude Haiku 5.5 via OpenRouter.</li>
+</ul>
+
+<h2 id="how-it-works">How it works</h2>
+<ol>
+  <li>While Integrity is OFF and every safety gate passes (Mac unlocked and awake, permission granted, foreground app not excluded), xCreen samples the foreground window for local OCR.</li>
+  <li>Near-duplicate OCR is discarded; screenshots are saved every ten active seconds to private files under <code>~/Library/Application Support/xCreen</code>, outside your vault.</li>
+  <li>Five active minutes (or 30 images) form a durable batch, sent to the same dedicated xCreen session in Hermes Agent.</li>
+  <li>The bundled runtime gives that session only scoped tools: OCR search and listing, image lookup, and a writer that appends source-bound insights to capture-date Daily notes.</li>
+  <li>Each batch completes only after an explicit saved or skipped result and verified receipts, so a crash does not cause blind resends or duplicate notes.</li>
+</ol>
+<p>Details: <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/how-it-works.md">How xCreen works</a> · <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/cli.md">CLI reference</a>.</p>
+
+<h2 id="privacy">Privacy and safety</h2>
+<ul>
+  <li><strong>What's captured:</strong> screenshots and OCR text of the eligible foreground window, only while Integrity is OFF and the Mac is unlocked and awake.</li>
+  <li><strong>Where it's stored:</strong> private local files outside your vault. This storage is not encrypted, so use FileVault. Only distilled, source-linked insights go into Daily notes.</li>
+  <li><strong>Retention:</strong> raw evidence expires after 7 days. Anything already sent to your model provider or saved in Hermes history follows their retention rules. Deletion does not guarantee forensic erasure.</li>
+  <li><strong>Excluded:</strong> known password managers (1Password, Bitwarden, LastPass, Dashlane, KeePass, Apple Passwords, Keychain), System Settings, lock and login screens, and xCreen itself.</li>
+  <li><strong>Not protected:</strong> browser password fields, password-manager browser extensions and popovers, and incognito/private windows are not detected or redacted. Turn Integrity ON before sensitive browsing.</li>
+  <li><strong>Integrity is user-only:</strong> the model and screen content cannot turn capture on. Screen text is treated as untrusted evidence, never as instructions.</li>
+</ul>
+<p>Full rules and limits: <a href="https://github.com/Al-ex-W/xCreen/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+
+<h2 id="requirements">Requirements</h2>
+<ul>
+  <li><strong>A working <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> install is required.</strong> xCreen does not include a model or keep API keys. It uses your Hermes profile read-only.</li>
+  <li><strong>Local OCR does not mean local inference.</strong> Batches and questions go to the provider behind your chosen Hermes route, and that provider's retention rules apply. For on-device inference, configure a local model in Hermes.</li>
+  <li><strong>Developer build.</strong> Built from source with Swift/Xcode, not notarized. Use a stable signing identity so macOS keeps the Screen Recording permission across reinstalls.</li>
+  <li>macOS 14 or later, Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later.</li>
+</ul>
+
+<h2 id="install">Install</h2>
+<pre><code>git clone https://github.com/Al-ex-W/xCreen.git &amp;&amp; cd xCreen
+bash scripts/install.sh           # builds, installs to ~/Applications, copies `xcreen` to ~/.local/bin
+xcreen status                     # Integrity should report ON (capture paused)</code></pre>
+<p>Turn Integrity OFF from the tray when you want capture to start. The <a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">install guide</a> covers vault setup, signing, verification and uninstalling. A prebuilt, ad-hoc signed zip is attached to <a href="https://github.com/Al-ex-W/xCreen/releases/tag/v0.1.0">release v0.1.0</a>; macOS Gatekeeper blocks it until you allow it in System Settings → Privacy &amp; Security.</p>
+
+<h2 id="more">More</h2>
+<ul>
+  <li><a href="alternatives/">Open-source alternatives to Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall</a> — sourced comparison</li>
+  <li><a href="faq/">FAQ</a></li>
+  <li><a href="llms.txt">llms.txt</a> and <a href="llms-full.txt">llms-full.txt</a> for AI assistants</li>
+</ul>
+</main>
+<footer>
+  <p>xCreen · <a href="https://github.com/Al-ex-W/xCreen/blob/main/LICENSE">Apache-2.0</a> · © Alexander Wahlström · <a href="https://github.com/Al-ex-W/xCreen">GitHub</a>. No tracking or analytics on this site.</p>
+</footer>
+</body>
+</html>

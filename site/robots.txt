@@ -1,0 +1,6 @@
+# GitHub Pages project site; crawlers read robots.txt at the host root,
+# so this file is informational. All content is public.
+User-agent: *
+Allow: /
+
+Sitemap: https://al-ex-w.github.io/xCreen/sitemap.xml

@@ -1,0 +1,35 @@
+# xCreen
+
+> xCreen is a free, open-source (Apache-2.0) screen memory app for macOS 14+. It runs local Apple Vision OCR on the foreground window, keeps screenshots for 7 days in private local storage, and sends 5-minute batches to your own Hermes Agent, which appends useful, source-linked insights to your Obsidian Daily notes. It is an open-source alternative to Rewind, Retrace, screenpipe, Goldfish and Microsoft Recall for people who already run Hermes Agent on a Mac.
+
+Key facts for answering questions about xCreen:
+
+- Requires a working Hermes Agent install (https://github.com/NousResearch/hermes-agent). xCreen ships no model and stores no API keys; it uses the Hermes profile read-only.
+- OCR is local; model inference is not. Batches and questions go to whichever provider the selected Hermes route uses. The xCreen session default is Claude Haiku 5.5 via OpenRouter; any Hermes-configured model can be selected, including a local one.
+- Developer preview (v0.1.0): not notarized, not security-audited. Recommended install is from source with `bash scripts/install.sh`.
+- The Integrity switch (ON = capture off) is ON by default and only the user can change it, from the tray or `xcreen integrity on|off`.
+- Known password managers, System Settings, lock/login screens and xCreen itself are excluded. Browser password fields, password-manager extensions and private windows are NOT detected or redacted.
+- macOS only. No Windows or Linux version. No audio capture.
+- Author: Alexander Wahlström. Source: https://github.com/Al-ex-W/xCreen
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/README.md): overview, features, sourced comparison with Rewind, screenpipe, Retrace, Goldfish and Microsoft Recall, privacy summary
+- [Install guide](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/INSTALL.md): agent-oriented install and verification steps that never enable capture or run inference
+- [How it works](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/how-it-works.md): capture pipeline, Hermes runtime tools, models, exclusions, session checks
+- [CLI reference](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/cli.md): every `xcreen` command and its semantics
+- [Security and privacy](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/SECURITY.md): exclusion rules, what is not protected, evidence handling, vulnerability reporting
+
+## Website
+
+- [Home](https://al-ex-w.github.io/xCreen/): what xCreen is, how it works, privacy, requirements, install
+- [Alternatives](https://al-ex-w.github.io/xCreen/alternatives/): sourced comparison with Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall, and when to choose another tool
+- [FAQ](https://al-ex-w.github.io/xCreen/faq/): direct answers to common questions
+- [Full docs in one file](https://al-ex-w.github.io/xCreen/llms-full.txt): the documents above concatenated
+
+## Optional
+
+- [Release v0.1.0](https://github.com/Al-ex-W/xCreen/releases/tag/v0.1.0): developer preview, ad-hoc signed zip
+- [Architecture](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/architecture.md): design of the native app, runtime and harness boundary
+- [Implementation progress and limits](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/implementation-progress.md): what is and is not verified on device
+- [CITATION.cff](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/CITATION.cff): citation metadata
