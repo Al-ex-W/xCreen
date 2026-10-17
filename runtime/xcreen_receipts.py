@@ -71,12 +71,22 @@ class BatchReceipts:
             db = self._db()
             try:
                 prior = db.execute('SELECT * FROM batches WHERE id=?', (bid,)).fetchone()
-                if prior and (prior['session'] != sid or prior['sources'] != encoded or prior['manifest'] != manifest):
+                if prior and (prior['sources'] != encoded or prior['manifest'] != manifest):
                     raise ValueError('conflicting immutable batch binding')
+                if prior and prior['session'] != sid:
+                    # Only a provably effect-free, non-terminal batch may move to a
+                    # new runtime session for a native-authorized retry.
+                    if prior['terminal'] or db.execute('SELECT 1 FROM entries WHERE batch=? LIMIT 1', (bid,)).fetchone():
+                        raise ValueError('conflicting immutable batch binding')
+                    db.execute('UPDATE batches SET session=? WHERE id=? AND terminal IS NULL', (sid, bid))
+                    self.active.pop(prior['session'], None)
                 db.execute('INSERT OR IGNORE INTO batches (id,session,sources,manifest) VALUES (?,?,?,?)', (bid,sid,encoded,manifest))
+                effect_free = not (prior and prior['terminal']) and not db.execute('SELECT 1 FROM entries WHERE batch=? LIMIT 1', (bid,)).fetchone()
                 db.commit()
                 current = self.active.get(sid)
-                if current is None or current.batch_id != bid:
+                # A finished, effect-free turn may not keep the pin: the native retry
+                # turn needs a fresh one. Once effects exist the pin stays immutable.
+                if current is None or current.batch_id != bid or (current.turn_id and effect_free):
                     self.active[sid] = ActiveBatch(bid, sources)
                 self.manual.pop(sid, None)
             finally:
@@ -203,7 +213,7 @@ class BatchReceipts:
                     raise ValueError('receipt binding mismatch')
                 effects = self._verify(db, bid)
                 if not row['terminal']:
-                    return dict(batch_id=bid, session_id=sid, source_ids=list(sources), status='uncertain', verified=False, effects=effects)
+                    return dict(batch_id=bid, session_id=sid, source_ids=list(sources), status='uncertain', verified=False, effects=effects, retry_safe=not effects)
                 result = dict(json.loads(row['terminal']), session_id=sid)
                 if effects != result['effects'] or any(e['state'] != 'completed' for e in effects):
                     return dict(result, status='uncertain', verified=False, effects=effects)
