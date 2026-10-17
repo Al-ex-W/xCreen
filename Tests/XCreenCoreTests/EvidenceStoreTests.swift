@@ -12,6 +12,19 @@ final class EvidenceStoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    /// A week of real use produced a >8 MB index (OCR text plus batch manifests); the store
+    /// must still open, or capture is blocked indefinitely.
+    func testOpensIndexLargerThanEightMegabytes() throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let now = Date().timeIntervalSinceReferenceDate
+        let text = String(repeating: "x", count: 4_000)
+        let ocr = (0..<2_600).map { i in #"{"id":"ocr-\#(i)","timestamp":\#(now - Double(i)),"text":"\#(text)","app":"a","title":"t"}"# }
+        let json = #"{"images":[],"batches":[],"ocr":["# + ocr.joined(separator: ",") + "]}"
+        XCTAssertGreaterThan(json.utf8.count, 9_000_000)
+        try Data(json.utf8).write(to: root.appendingPathComponent("index.json"))
+        XCTAssertNoThrow(try EvidenceStore(root: root))
+    }
+
     func testTimestampedCaptureStatusContainsNoEvidence() async throws {
         let store = try EvidenceStore(root: root)
         try await store.saveCaptureStatus(state: "gap", reason: "excluded", integrity: false)
