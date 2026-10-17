@@ -73,7 +73,7 @@ xcreen restart
 
 **images.** `images list|open` covers the current answer's resolved attachment IDs, not arbitrary paths or a general filesystem browser.
 
-**model.** `models list` shows Hermes's provider-aware configured routes. `model select` and `model default PROVIDER MODEL` set the xCreen session default only (built-in default: `openrouter` / `anthropic/claude-haiku-5.5`); Hermes's global default is unchanged. An unavailable model is reported; there is no silent fallback.
+**model.** `models list` shows Hermes's provider-aware configured routes. `model select` and `model default PROVIDER MODEL` set the xCreen session default only (built-in default: `anthropic` / `claude-haiku-5-5`); Hermes's global default is unchanged. An unavailable model is reported; there is no silent fallback.
 
 **settings.** Changes are persisted by the running app and report persistence and reconnect failure separately. Do not use `defaults write` as a parallel live control surface.
 

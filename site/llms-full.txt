@@ -30,7 +30,7 @@ Looking for an open-source Rewind or Microsoft Recall alternative for Mac? xCree
 - **Batches into one Hermes session.** Every 5 active minutes (or 30 images), a batch goes to a single persistent xCreen session in your Hermes Agent. It does not start a new chat each time.
 - **Sourced insights in your Daily notes.** The model appends only useful findings to that day's note in your Obsidian vault, each linked to its captured evidence. If nothing is worth saving, the batch is marked skipped.
 - **Integrity switch.** One switch, controlled only by you, stops all new screenshots and OCR. It is ON at first launch and keeps your choice across restarts.
-- **7-day local retention, any model.** Raw evidence is deleted after seven days. You can pick any model your Hermes setup has configured. The default for the xCreen session is Claude Haiku 5.5 via OpenRouter.
+- **7-day local retention, any model.** Raw evidence is deleted after seven days. You can pick any model your Hermes setup has configured. The default for the xCreen session is Claude Haiku 5.5 on your Anthropic account.
 
 ## xCreen vs alternatives
 
@@ -163,7 +163,7 @@ xcreen model default                       # show the xCreen session default
 xcreen model select PROVIDER EXACT_MODEL_ID # also saves it as the xCreen default
 ```
 
-Settings are persisted by the running app and its gateway reconnects; session identity is retained. The xCreen session default is Claude Haiku 5.5 via OpenRouter (`openrouter` / `anthropic/claude-haiku-5.5`) until you pick another configured route in the tray or with `xcreen model default PROVIDER MODEL`; it applies only to the xCreen session, never Hermes's global default, and an unavailable model is reported rather than replaced. Do not use `defaults write` as a parallel live control surface. The installer pre-fills defaults only while the app is stopped.
+Settings are persisted by the running app and its gateway reconnects; session identity is retained. The xCreen session default is Claude Haiku 5.5 on your Anthropic account (`anthropic` / `claude-haiku-5-5`) until you pick another configured route in the tray or with `xcreen model default PROVIDER MODEL`; it applies only to the xCreen session, never Hermes's global default, and an unavailable model is reported rather than replaced. Do not use `defaults write` as a parallel live control surface. The installer pre-fills defaults only while the app is stopped.
 
 ## User-only deliberate actions
 The **Show session in Hermes** tray toggle defaults OFF (hidden). Use `xcreen session visibility on` or `off` to change that same persisted preference for the existing xCreen session. Offline changes remain pending until connection/resume applies them. `xcreen --json status` separates desired `sessionVisible`, last gateway-confirmed `actualSessionVisible` (absent when unknown), and `sessionVisibilityPending`. No profile defaults, session identity, Integrity preference or capture behavior change. Upgrading an existing install with no saved visibility preference applies hidden on its next connection, even if the session was previously manually unhidden.
@@ -224,7 +224,7 @@ xCreen does not modify Hermes profile defaults or other conversations.
 
 ## Models
 
-Model inventory comes from Hermes's provider-aware configured routes. xCreen keeps its own session default — Claude Haiku 5.5 via OpenRouter (`openrouter` / `anthropic/claude-haiku-5.5`) unless changed with the tray picker or `xcreen model default` — applied only to the xCreen session with a session-scoped model switch and reported if unavailable (no fallback). Inventory currently carries no reliable vision/image-limit metadata, so check that your chosen route accepts images.
+Model inventory comes from Hermes's provider-aware configured routes. xCreen keeps its own session default — Claude Haiku 5.5 on your Anthropic account (`anthropic` / `claude-haiku-5-5`) unless changed with the tray picker or `xcreen model default` — applied only to the xCreen session with a session-scoped model switch and reported if unavailable (no fallback). Inventory currently carries no reliable vision/image-limit metadata, so check that your chosen route accepts images.
 
 OCR runs locally. Inference does not: batches and questions go to whichever provider the selected route uses.
 
@@ -326,7 +326,7 @@ xcreen restart
 
 **images.** `images list|open` covers the current answer's resolved attachment IDs, not arbitrary paths or a general filesystem browser.
 
-**model.** `models list` shows Hermes's provider-aware configured routes. `model select` and `model default PROVIDER MODEL` set the xCreen session default only (built-in default: `openrouter` / `anthropic/claude-haiku-5.5`); Hermes's global default is unchanged. An unavailable model is reported; there is no silent fallback.
+**model.** `models list` shows Hermes's provider-aware configured routes. `model select` and `model default PROVIDER MODEL` set the xCreen session default only (built-in default: `anthropic` / `claude-haiku-5-5`); Hermes's global default is unchanged. An unavailable model is reported; there is no silent fallback.
 
 **settings.** Changes are persisted by the running app and report persistence and reconnect failure separately. Do not use `defaults write` as a parallel live control surface.
 

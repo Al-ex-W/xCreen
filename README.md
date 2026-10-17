@@ -21,7 +21,7 @@ Looking for an open-source Rewind or Microsoft Recall alternative for Mac? xCree
 - **Batches into one Hermes session.** Every 5 active minutes (or 30 images), a batch goes to a single persistent xCreen session in your Hermes Agent. It does not start a new chat each time.
 - **Sourced insights in your Daily notes.** The model appends only useful findings to that day's note in your Obsidian vault, each linked to its captured evidence. If nothing is worth saving, the batch is marked skipped.
 - **Integrity switch.** One switch, controlled only by you, stops all new screenshots and OCR. It is ON at first launch and keeps your choice across restarts.
-- **7-day local retention, any model.** Raw evidence is deleted after seven days. You can pick any model your Hermes setup has configured. The default for the xCreen session is Claude Haiku 5.5 via OpenRouter.
+- **7-day local retention, any model.** Raw evidence is deleted after seven days. You can pick any model your Hermes setup has configured. The default for the xCreen session is Claude Haiku 5.5 on your Anthropic account.
 
 ## xCreen vs alternatives
 
