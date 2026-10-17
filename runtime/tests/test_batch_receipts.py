@@ -62,23 +62,46 @@ class BatchReceiptTests(unittest.TestCase):
         self.assertNotIn('retry_safe', self.service.receipt(params))
 
     def test_conflicting_unbound_effect_row_still_blocks_batch_retry(self):
-        # An edited/partial block found without a ledger row is still a batch effect.
+        # A user-edited xCreen bullet stays a recorded effect: never re-appended, never retry-safe.
         self.setup_service()
         params = dict(session_id='session-a', batch_id='batch-a', source_ids=['ocr-a'])
         self.service.prepare(params)
         effect = self.service.append({'entry_id':'fact','fact':'Useful.','source_ids':['ocr-a']}, 'session-a', 'turn-a')
         note = self.writer.vault/'Daily'/(effect['day']+'.md')
         note.write_text(note.read_text().replace('Useful.', 'User edited.'))
-        db = self.writer._receipts_db()
-        try:
-            db.execute('DELETE FROM entries'); db.commit()
-        finally:
-            db.close()
         with self.assertRaises(ValueError):
             self.service.append({'entry_id':'fact','fact':'Useful.','source_ids':['ocr-a']}, 'session-a', 'turn-a')
         receipt = self.service.receipt(params)
         self.assertEqual(len(receipt['effects']), 1)
         self.assertFalse(receipt.get('retry_safe', False))
+        self.assertNotIn('Useful.', note.read_text())
+
+    def test_cross_note_write_confined_and_revise_replaces_only_own_line(self):
+        self.setup_service()
+        vault = self.writer.vault
+        (vault/'Projects').mkdir()
+        (vault/'Agent').mkdir()
+        project = vault/'Projects'/'Plan.md'
+        project.write_text('# Plan\n\nUser intro.\n\n## Log\n\n- 2026-10-01 user bullet\n\n## Notes\n\nUser notes.\n')
+        params = dict(session_id='session-a', batch_id='batch-a', source_ids=['ocr-a'])
+        self.service.prepare(params)
+        for path in ('Agent/Operating Rules.md', '../escape.md', '/etc/x.md', '.obsidian/app.md', 'Projects/.hidden.md',
+                     'Projects/Plan.txt', 'Root.md', 'Daily/2000-01-01.md', 'Nope/X.md'):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                self.service.append({'entry_id':'p','text':'- x','source_ids':['ocr-a'],'path':path}, 'session-a', 'turn-a')
+        first = self.service.append({'entry_id':'p','text':'- 2026-10-17 — draft v2 done','source_ids':['ocr-a'],'path':'Projects/Plan.md','section':'Log'}, 'session-a','turn-a')
+        self.assertEqual(project.read_text(), '# Plan\n\nUser intro.\n\n## Log\n\n- 2026-10-01 user bullet\n- 2026-10-17 — draft v2 done\n\n## Notes\n\nUser notes.\n')
+        second = self.service.append({'entry_id':'p2','text':'- 2026-10-17 — draft v2 done and sent to [[People/Jo]]','source_ids':['ocr-a'],'path':'Projects/Plan.md','revises':first['entry_id']}, 'session-a','turn-a')
+        self.assertEqual(project.read_text().count('draft v2'), 1)
+        self.assertIn('User notes.', project.read_text())
+        with self.assertRaises(ValueError):  # user text is never a revise target
+            self.service.append({'entry_id':'p3','text':'- hijack','source_ids':['ocr-a'],'path':'Projects/Plan.md','revises':'0'*64}, 'session-a','turn-a')
+        new = self.service.append({'entry_id':'p4','text':'- Met at the demo','source_ids':['ocr-a'],'path':'Projects/New idea.md'}, 'session-a','turn-a')
+        self.assertTrue(new['created'])
+        self.assertEqual((vault/'Projects'/'New idea.md').read_text(), '# New idea\n\n- Met at the demo\n')
+        terminal = self.service.result({'outcome':'saved','effect_ids':[first['entry_id'],second['entry_id'],new['entry_id']]}, 'session-a','turn-a')
+        self.assertTrue(terminal['verified'])
+        self.assertEqual(self.service.receipt(params)['status'], 'saved')
 
     def test_host_binding_rejects_spoof_and_out_of_batch_sources(self):
         self.setup_service()

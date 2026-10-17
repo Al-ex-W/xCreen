@@ -5,10 +5,12 @@ No receipt authority derives from assistant prose or compactable history.
 from __future__ import annotations
 import hashlib
 import json
-import re
 import threading
 from dataclasses import dataclass
 from runtime.xcreen_tools import _safe_id, _utc, VaultDailyWriter
+
+# Model-supplied write fields; batch identity and capture day stay host-owned.
+_WRITE_FIELDS = {'entry_id', 'text', 'fact', 'source_ids', 'path', 'section', 'revises'}
 
 
 @dataclass(frozen=True)
@@ -114,7 +116,7 @@ class BatchReceipts:
         return context
 
     def append_manual(self, args, sid, turn):
-        if not isinstance(args, dict) or set(args) - {'entry_id','fact','source_ids'}:
+        if not isinstance(args, dict) or set(args) - _WRITE_FIELDS:
             raise ValueError('manual writer denies batch/day spoofing')
         _safe_id(args.get('entry_id'))
         with self.mutex:
@@ -124,7 +126,7 @@ class BatchReceipts:
             return self.writer.append(dict(args, batch_id='manual-' + hashlib.sha256((sid+turn).encode()).hexdigest()[:32]))
 
     def append(self, args, sid, turn):
-        if not isinstance(args, dict) or set(args) - {'entry_id','fact','source_ids'}:
+        if not isinstance(args, dict) or set(args) - _WRITE_FIELDS:
             raise ValueError('model cannot select batch identity or capture day')
         _safe_id(args.get('entry_id'))
         with self.mutex:
@@ -143,21 +145,16 @@ class BatchReceipts:
             return self.writer.append(dict(args, batch_id=context.batch_id), expected_sources=expected)
 
     def _verify(self, db, bid):
+        """Effects are verified from the private journal's exact text, never from note markup."""
         effects = []
         for row in db.execute('SELECT * FROM entries WHERE batch=? ORDER BY id', (bid,)).fetchall():
-            valid = False
-            try:
-                with self.writer._daily_note(row['day'], create=False) as fd:
-                    text = self.writer._read_note(fd)
-                    matches = list(re.finditer(rf"<!-- xcreen-entry:{row['id']} digest:([0-9a-f]{{64}}) -->\n(.*?)<!-- /xcreen-entry:{row['id']} -->", text, re.DOTALL))
-                    valid = (len(matches) == 1 and matches[0][1] == row['digest']
-                             and hashlib.sha256(matches[0][2].encode()).hexdigest() == row['digest'])
-                    self.writer._verify_note(fd, row['day'])
-            except (OSError, ValueError, UnicodeError):
-                valid = False
-            state = 'completed' if valid else 'uncertain'
+            row = dict(row)
+            state = row['state'] if row['state'] == 'superseded' else ('completed' if self.writer.verify_effect(row) else 'uncertain')
             db.execute('UPDATE entries SET state=? WHERE id=?', (state,row['id']))
-            effects.append({'entry_id':row['id'], 'day':row['day'], 'digest':row['digest'], 'state':state})
+            effect = {'entry_id':row['id'], 'day':row['day'], 'digest':row['digest'], 'state':state}
+            if row.get('path'):
+                effect['path'] = row['path']
+            effects.append(effect)
         db.commit()
         return effects
 
@@ -179,7 +176,7 @@ class BatchReceipts:
                 try:
                     effects = self._verify(db, context.batch_id)
                     if (set(ids) != {e['entry_id'] for e in effects}
-                            or any(e['state'] != 'completed' for e in effects)):
+                            or any(e['state'] not in ('completed','superseded') for e in effects)):
                         raise ValueError('result does not match exact reconciled effects')
                     result = dict(batch_id=context.batch_id, session_id=sid, source_ids=list(context.source_ids),
                                   status=outcome, verified=True, effects=effects, reason=args.get('reason') or None)
@@ -215,7 +212,7 @@ class BatchReceipts:
                 if not row['terminal']:
                     return dict(batch_id=bid, session_id=sid, source_ids=list(sources), status='uncertain', verified=False, effects=effects, retry_safe=not effects)
                 result = dict(json.loads(row['terminal']), session_id=sid)
-                if effects != result['effects'] or any(e['state'] != 'completed' for e in effects):
+                if effects != result['effects'] or any(e['state'] not in ('completed','superseded') for e in effects):
                     return dict(result, status='uncertain', verified=False, effects=effects)
                 return result
             finally:
