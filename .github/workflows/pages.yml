@@ -1,0 +1,57 @@
+name: Pages
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'INSTALL.md'
+      - 'SECURITY.md'
+      - 'scripts/build-llms.py'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Regenerate llms.txt, llms-full.txt and site assets from docs
+        run: python3 scripts/build-llms.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      # Indexing ping (Bing, Yandex and other IndexNow engines) for the sitemap URLs.
+      - name: Notify IndexNow
+        continue-on-error: true
+        run: |
+          python3 - <<'EOF'
+          import json, re, urllib.request
+          urls = re.findall(r"<loc>([^<]+)</loc>", open("site/sitemap.xml", encoding="utf-8").read())
+          body = json.dumps({
+              "host": "al-ex-w.github.io",
+              "key": "e5eed7100a60101a8d445cae09a6af84",
+              "keyLocation": "https://al-ex-w.github.io/xCreen/e5eed7100a60101a8d445cae09a6af84.txt",
+              "urlList": urls,
+          }).encode()
+          req = urllib.request.Request("https://api.indexnow.org/indexnow", data=body,
+                                       headers={"Content-Type": "application/json; charset=utf-8"})
+          with urllib.request.urlopen(req, timeout=30) as r:
+              print("IndexNow", r.status, len(urls), "URLs")
+          EOF
