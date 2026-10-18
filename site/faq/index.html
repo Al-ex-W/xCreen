@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>xCreen FAQ: screen memory for Hermes on macOS, open source Rewind alternative</title>
-<meta name="description" content="Answers about xCreen, screen memory for Hermes on macOS: Rewind alternatives, cloud vs local AI, Obsidian, models, price, retention, pausing capture.">
+<meta name="description" content="Answers about xCreen, screen history for Hermes Agent on macOS: Rewind, Limitless, ActivityWatch, Dayflow, OpenRecall and Pensieve compared, local CLI, MCP plans, privacy.">
 <link rel="canonical" href="https://al-ex-w.github.io/xCreen/faq/">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../style.css">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="xCreen">
 <meta property="og:title" content="xCreen FAQ">
-<meta property="og:description" content="Answers about xCreen, screen memory for Hermes on macOS: Rewind alternatives, cloud vs local AI, Obsidian, models, price, retention, pausing capture.">
+<meta property="og:description" content="Answers about xCreen, screen history for Hermes Agent on macOS: Rewind, Limitless, ActivityWatch, Dayflow, OpenRecall and Pensieve compared, local CLI, MCP plans, privacy.">
 <meta property="og:url" content="https://al-ex-w.github.io/xCreen/faq/">
 <meta property="og:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
 <meta property="og:image:width" content="1280">
@@ -19,7 +19,7 @@
 <meta property="og:image:alt" content="xCreen: screen memory for Hermes on macOS">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="xCreen FAQ">
-<meta name="twitter:description" content="Answers about xCreen, screen memory for Hermes on macOS: Rewind alternatives, cloud vs local AI, Obsidian, models, price, retention, pausing capture.">
+<meta name="twitter:description" content="Answers about xCreen, screen history for Hermes Agent on macOS: Rewind, Limitless, ActivityWatch, Dayflow, OpenRecall and Pensieve compared, local CLI, MCP plans, privacy.">
 <meta name="twitter:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
 <script type="application/ld+json">
 {
@@ -146,6 +146,70 @@
         "@type": "Answer",
         "text": "Download the zip from release 1.0.0, or build it: git clone https://github.com/Al-ex-W/xCreen.git && cd xCreen && bash scripts/install.sh. You need macOS 14+ and Hermes Agent; building also needs Xcode/Swift and Python 3. Full steps, including uninstalling: INSTALL.md."
       }
+    },
+    {
+      "@type": "Question",
+      "name": "Does xCreen have an MCP server or API?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Not yet. Today the local interface is the xcreen CLI, and xcreen --json prints machine-readable output. A read-only MCP server (search, recent, coverage, ask) is planned; follow it on the roadmap issue and in the roadmap. Commands and output: CLI and JSON."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can Hermes Agent use my screen history?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. xCreen runs one dedicated session in your own Hermes Agent with scoped tools for OCR search, nearby screenshots and capture coverage. Ask that session from the tray, the macOS 26+ \"Ask xCreen\" Spotlight action, or xcreen ask. The tools are pinned to that session only, so other Hermes chats do not get them; an agent with terminal access can run xcreen --json ask. Details: how it works."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is xCreen different from ActivityWatch?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "ActivityWatch is an open source time tracker that records which apps and windows were active; xCreen reads what was on screen with OCR. ActivityWatch runs on Windows, macOS, Linux and Android and has a local REST API. xCreen is macOS-only, has a local CLI rather than a REST API, and has your Hermes Agent write takeaways into Obsidian. Sources on the alternatives page."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is xCreen different from OpenRecall?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "OpenRecall is a cross-platform, AGPL-3.0 screenshot archive with local OCR and a web UI; xCreen is a Mac app that feeds your Hermes Agent and notes. Choose OpenRecall if you want to browse and search everything you saw, on Windows, macOS or Linux. xCreen keeps raw evidence for 7 days and writes short takeaways into Obsidian. Sources on the alternatives page."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is xCreen different from Dayflow?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Dayflow is an open source Mac app that turns screen recordings into a visual timeline of your day; xCreen has no timeline view. xCreen sends batches to your Hermes Agent, which writes only what is worth keeping into your Obsidian daily notes. Dayflow can use local models or Gemini, ChatGPT or Claude. Sources on the alternatives page."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is xCreen different from Pensieve?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Pensieve screenshots all your screens into a local searchable archive with an HTTP API; xCreen captures only the foreground window and works through Hermes Agent. Pensieve runs on macOS and Windows and uses Ollama or OpenAI-compatible models. xCreen deletes raw evidence after 7 days and writes takeaways into Obsidian. Sources on the alternatives page."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is there an open source screen memory app with a local API for Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "xCreen offers a local CLI with JSON output today; a read-only MCP server is planned. If you need an HTTP API now, Pensieve has one and ActivityWatch has a REST API for activity events. See the xCreen CLI and the alternatives page."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What's a Rewind or Limitless alternative for Mac in 2026?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "For Mac users with Hermes Agent and Obsidian, xCreen. Limitless was acquired by Meta and is sunsetting Rewind. Other Mac options include Retrace, Dayflow, Pensieve, OpenRecall, screenpipe and LUCI. They differ in license, capture and where AI runs; compare them on the alternatives page."
+      }
     }
   ]
 }
@@ -154,7 +218,7 @@
 <body>
 <header>
   <a class="brand" href="../">xCreen</a>
-  <nav><a href="../alternatives/">Alternatives</a><a href="./">FAQ</a><a href="https://github.com/Al-ex-W/xCreen">GitHub</a></nav>
+  <nav><a href="../alternatives/">Alternatives</a><a href="./">FAQ</a><a href="../cli/">CLI</a><a href="https://github.com/Al-ex-W/xCreen">GitHub</a></nav>
 </header>
 <main>
 <h1>xCreen FAQ</h1>
@@ -175,6 +239,14 @@
   <li><a href="#does-xcreen-capture-passwords">Does xCreen capture passwords?</a></li>
   <li><a href="#do-i-need-hermes-agent-to-use-xcreen">Do I need Hermes Agent to use xCreen?</a></li>
   <li><a href="#how-do-i-install-xcreen">How do I install xCreen?</a></li>
+  <li><a href="#does-xcreen-have-an-mcp-server-or-api">Does xCreen have an MCP server or API?</a></li>
+  <li><a href="#can-hermes-agent-use-my-screen-history">Can Hermes Agent use my screen history?</a></li>
+  <li><a href="#how-is-xcreen-different-from-activitywatch">How is xCreen different from ActivityWatch?</a></li>
+  <li><a href="#how-is-xcreen-different-from-openrecall">How is xCreen different from OpenRecall?</a></li>
+  <li><a href="#how-is-xcreen-different-from-dayflow">How is xCreen different from Dayflow?</a></li>
+  <li><a href="#how-is-xcreen-different-from-pensieve">How is xCreen different from Pensieve?</a></li>
+  <li><a href="#is-there-an-open-source-screen-memory-app-with-a-local-api-for-mac">Is there an open source screen memory app with a local API for Mac?</a></li>
+  <li><a href="#whats-a-rewind-or-limitless-alternative-for-mac-in-2026">What&#x27;s a Rewind or Limitless alternative for Mac in 2026?</a></li>
 </ul>
 
 <h2 id="is-there-an-open-source-rewind-alternative-for-mac">Is there an open-source Rewind alternative for Mac?</h2>
@@ -236,9 +308,40 @@
 <h2 id="how-do-i-install-xcreen">How do I install xCreen?</h2>
 <p><strong>Download the zip from <a href="https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0">release 1.0.0</a>, or build it: <code>git clone https://github.com/Al-ex-W/xCreen.git &amp;&amp; cd xCreen &amp;&amp; bash scripts/install.sh</code>.</strong></p>
 <p>You need macOS 14+ and Hermes Agent; building also needs Xcode/Swift and Python 3. Full steps, including uninstalling: <a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">INSTALL.md</a>.</p>
+<h2 id="does-xcreen-have-an-mcp-server-or-api">Does xCreen have an MCP server or API?</h2>
+<p><strong>Not yet. Today the local interface is the <code>xcreen</code> CLI, and <code>xcreen --json</code> prints machine-readable output.</strong></p>
+<p>A read-only MCP server (search, recent, coverage, ask) is planned; follow it on the <!-- TODO ROADMAP_MCP_URL --><a href="https://github.com/Al-ex-W/xCreen/issues">roadmap issue</a> and in the <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/roadmap.md">roadmap</a>. Commands and output: <a href="../cli/">CLI and JSON</a>.</p>
+
+<h2 id="can-hermes-agent-use-my-screen-history">Can Hermes Agent use my screen history?</h2>
+<p><strong>Yes. xCreen runs one dedicated session in your own Hermes Agent with scoped tools for OCR search, nearby screenshots and capture coverage.</strong></p>
+<p>Ask that session from the tray, the macOS 26+ "Ask xCreen" Spotlight action, or <code>xcreen ask</code>. The tools are pinned to that session only, so other Hermes chats do not get them; an agent with terminal access can run <code>xcreen --json ask</code>. Details: <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/how-it-works.md">how it works</a>.</p>
+
+<h2 id="how-is-xcreen-different-from-activitywatch">How is xCreen different from ActivityWatch?</h2>
+<p><strong>ActivityWatch is an open source time tracker that records which apps and windows were active; xCreen reads what was on screen with OCR.</strong></p>
+<p>ActivityWatch runs on Windows, macOS, Linux and Android and has a local REST API. xCreen is macOS-only, has a local CLI rather than a REST API, and has your Hermes Agent write takeaways into Obsidian. Sources on the <a href="../alternatives/#activitywatch">alternatives page</a>.</p>
+
+<h2 id="how-is-xcreen-different-from-openrecall">How is xCreen different from OpenRecall?</h2>
+<p><strong>OpenRecall is a cross-platform, AGPL-3.0 screenshot archive with local OCR and a web UI; xCreen is a Mac app that feeds your Hermes Agent and notes.</strong></p>
+<p>Choose OpenRecall if you want to browse and search everything you saw, on Windows, macOS or Linux. xCreen keeps raw evidence for 7 days and writes short takeaways into Obsidian. Sources on the <a href="../alternatives/#openrecall">alternatives page</a>.</p>
+
+<h2 id="how-is-xcreen-different-from-dayflow">How is xCreen different from Dayflow?</h2>
+<p><strong>Dayflow is an open source Mac app that turns screen recordings into a visual timeline of your day; xCreen has no timeline view.</strong></p>
+<p>xCreen sends batches to your Hermes Agent, which writes only what is worth keeping into your Obsidian daily notes. Dayflow can use local models or Gemini, ChatGPT or Claude. Sources on the <a href="../alternatives/#dayflow">alternatives page</a>.</p>
+
+<h2 id="how-is-xcreen-different-from-pensieve">How is xCreen different from Pensieve?</h2>
+<p><strong>Pensieve screenshots all your screens into a local searchable archive with an HTTP API; xCreen captures only the foreground window and works through Hermes Agent.</strong></p>
+<p>Pensieve runs on macOS and Windows and uses Ollama or OpenAI-compatible models. xCreen deletes raw evidence after 7 days and writes takeaways into Obsidian. Sources on the <a href="../alternatives/#pensieve">alternatives page</a>.</p>
+
+<h2 id="is-there-an-open-source-screen-memory-app-with-a-local-api-for-mac">Is there an open source screen memory app with a local API for Mac?</h2>
+<p><strong>xCreen offers a local CLI with JSON output today; a read-only MCP server is planned.</strong></p>
+<p>If you need an HTTP API now, Pensieve has one and ActivityWatch has a REST API for activity events. See the <a href="../cli/">xCreen CLI</a> and the <a href="../alternatives/">alternatives page</a>.</p>
+
+<h2 id="whats-a-rewind-or-limitless-alternative-for-mac-in-2026">What&#x27;s a Rewind or Limitless alternative for Mac in 2026?</h2>
+<p><strong>For Mac users with Hermes Agent and Obsidian, xCreen. Limitless was acquired by Meta and is sunsetting Rewind.</strong></p>
+<p>Other Mac options include Retrace, Dayflow, Pensieve, OpenRecall, screenpipe and LUCI. They differ in license, capture and where AI runs; compare them on the <a href="../alternatives/">alternatives page</a>.</p>
 </main>
 <footer>
-  <p>xCreen · <a href="https://github.com/Al-ex-W/xCreen/blob/main/LICENSE">Apache-2.0</a> · © Alexander Wahlström · <a href="https://github.com/Al-ex-W/xCreen">GitHub</a>. No tracking or analytics on this site.</p>
+  <p>xCreen · <a href="https://github.com/Al-ex-W/xCreen/blob/main/LICENSE">Apache-2.0</a> · © Alexander Wahlström · <a href="https://github.com/Al-ex-W/xCreen">GitHub</a> · <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/roadmap.md">Roadmap</a>. No tracking or analytics on this site.</p>
 </footer>
 </body>
 </html>
