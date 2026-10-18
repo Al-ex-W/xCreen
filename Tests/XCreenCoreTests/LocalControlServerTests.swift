@@ -49,14 +49,16 @@ for frame,expected in [(b'{"command":"status"}\\n',True),(b'bad\\n',False)]:
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         signal(SIGPIPE, SIG_IGN) // slow CI runners: a closed peer must not kill the test process
-        let gate = DispatchSemaphore(value: 0)
+        let release = Flag()
         let checks = Counter(), handled = Counter()
         // First 8 peers are authorized and parked in the handler (filling every slot); later peers are rejected.
         let server = try LocalControlServer(directory: root, peerAuthorized: { _ in checks.next() <= 8 }) { _ in
-            handled.next(); gate.wait()
+            handled.next()
+            // Park without blocking a cooperative-pool thread (small CI runners have only ~3).
+            while !release.isSet { try? await Task.sleep(nanoseconds: 10_000_000) }
             return .ok(.init(app: "synthetic", connected: false, integrity: true, capture: "paused", settings: .init()))
         }
-        defer { server.stop(); for _ in 0..<8 { gate.signal() } }
+        defer { release.set(); server.stop() }
         let path = root.appendingPathComponent("control.sock").path
         var parked: [Int32] = []
         defer { parked.forEach { close($0) } }
@@ -92,4 +94,10 @@ private final class Counter: @unchecked Sendable {
     private let lock = NSLock(); private var count = 0
     @discardableResult func next() -> Int { lock.lock(); defer { lock.unlock() }; count += 1; return count }
     var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock(); private var value = false
+    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    func set() { lock.lock(); value = true; lock.unlock() }
 }
