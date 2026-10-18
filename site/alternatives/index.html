@@ -3,23 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Open-source alternatives to Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall — xCreen</title>
-<meta name="description" content="Sourced comparison of screen memory apps: xCreen, Rewind (shut down), screenpipe, Retrace, Goldfish and Microsoft Recall, and when to choose each.">
+<title>Open source Rewind and Recall alternatives: xCreen, screenpipe, Retrace, Goldfish</title>
+<meta name="description" content="Screen memory apps compared: xCreen, Rewind (shut down), screenpipe, Retrace, Goldfish and Microsoft Recall, and when to pick each.">
 <link rel="canonical" href="https://al-ex-w.github.io/xCreen/alternatives/">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../style.css">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="xCreen">
-<meta property="og:title" content="Open-source alternatives to Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall">
-<meta property="og:description" content="Sourced comparison of screen memory apps, with honest advice on when to choose another tool.">
+<meta property="og:title" content="Open source Rewind and Recall alternatives">
+<meta property="og:description" content="Screen memory apps compared: xCreen, Rewind (shut down), screenpipe, Retrace, Goldfish and Microsoft Recall, and when to pick each.">
 <meta property="og:url" content="https://al-ex-w.github.io/xCreen/alternatives/">
 <meta property="og:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
-<meta property="og:image:alt" content="xCreen: open-source screen memory for macOS">
+<meta property="og:image:alt" content="xCreen: screen memory for Hermes on macOS">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Open-source alternatives to Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall">
-<meta name="twitter:description" content="Sourced comparison of screen memory apps, with honest advice on when to choose another tool.">
+<meta name="twitter:title" content="Open source Rewind and Recall alternatives">
+<meta name="twitter:description" content="Screen memory apps compared: xCreen, Rewind (shut down), screenpipe, Retrace, Goldfish and Microsoft Recall, and when to pick each.">
 <meta name="twitter:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
 <script type="application/ld+json">
 {
@@ -28,12 +28,12 @@
     {
       "@type": "Article",
       "@id": "https://al-ex-w.github.io/xCreen/alternatives/#article",
-      "headline": "Open-source alternatives to Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall",
-      "description": "A sourced comparison of screen memory apps and when to choose each one.",
+      "headline": "Open source Rewind and Recall alternatives",
+      "description": "Screen memory apps compared: xCreen, Rewind (shut down), screenpipe, Retrace, Goldfish and Microsoft Recall, and when to pick each.",
       "url": "https://al-ex-w.github.io/xCreen/alternatives/",
       "mainEntityOfPage": "https://al-ex-w.github.io/xCreen/alternatives/",
       "datePublished": "2026-10-17",
-      "dateModified": "2026-10-17",
+      "dateModified": "2026-10-18",
       "inLanguage": "en",
       "image": "https://al-ex-w.github.io/xCreen/assets/social-preview.png",
       "author": {"@type": "Person", "name": "Alexander Wahlström", "url": "https://github.com/Al-ex-W"},
@@ -75,9 +75,9 @@
   <nav><a href="./">Alternatives</a><a href="../faq/">FAQ</a><a href="https://github.com/Al-ex-W/xCreen">GitHub</a></nav>
 </header>
 <main>
-<h1>Open-source alternatives to Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall</h1>
-<p class="lead">Screen memory apps record what you see so you can search or ask about it later. Rewind, the best-known Mac app, has shut down. This page compares the options using each project's own public pages, so you can pick the one that fits.</p>
-<p>Written by the author of xCreen, so read it with that in mind. Facts were checked in October 2026 against the <a href="#sources">sources</a> below. Products change; check the linked pages yourself.</p>
+<h1>Rewind and Recall alternatives</h1>
+<p class="lead">Screen memory apps remember what you see so you can ask about it later. Rewind has shut down. Here is what else there is.</p>
+<p>Checked October 2026 against each project's own pages (<a href="#sources">sources</a>).</p>
 
 <h2 id="comparison">Comparison</h2>
 <div class="table-wrap">
@@ -90,31 +90,30 @@
 <tr><th scope="row">License / source</th><td>Apache-2.0, open source</td><td>—</td><td>Source-available Screenpipe Commercial License; personal non-commercial use free, commercial use needs a license<sup><a href="#sp2">[4]</a></sup></td><td>MIT, open source<sup><a href="#rt2">[6]</a></sup></td><td>Not covered here</td><td>Windows feature</td></tr>
 <tr><th scope="row">Capture method</th><td>Foreground-window screenshots + local Vision OCR</td><td>Screen and audio recording<sup><a href="#rw1">[1]</a></sup></td><td>Accessibility tree, OCR fallback, audio transcription<sup><a href="#sp1">[3]</a></sup></td><td>Screenshots every 2 s + Vision OCR, SQLite FTS5<sup><a href="#rt1">[5]</a></sup></td><td>Foreground-window text via Accessibility, no screenshots<sup><a href="#gf2">[8]</a></sup></td><td>Periodic snapshots<sup><a href="#ms1">[9]</a></sup></td></tr>
 <tr><th scope="row">Where AI runs</th><td>Whichever provider your Hermes route uses (OCR is local, inference usually isn't)</td><td>—</td><td>Local models (e.g. Ollama) or cloud AI, as you configure<sup><a href="#sp1">[3]</a></sup></td><td>No model inference listed as active<sup><a href="#rt1">[5]</a></sup></td><td>Cloud: Azure OpenAI via Cloudflare; memory stored locally<sup><a href="#gf2">[8]</a></sup></td><td>Processed locally on the PC<sup><a href="#ms2">[10]</a></sup></td></tr>
-<tr><th scope="row">Writes to your notes</th><td>Yes, sourced entries in Obsidian Daily notes</td><td>—</td><td>—</td><td>—</td><td>Keeps its own local memory, exposed over MCP<sup><a href="#gf2">[8]</a></sup></td><td>—</td></tr>
-<tr><th scope="row">Status</th><td>Developer build</td><td>Shut down: capture disabled Dec 19, 2025 after Meta acquired Limitless<sup><a href="#rw1">[1]</a><a href="#rw2">[2]</a></sup></td><td>Actively developed<sup><a href="#sp1">[3]</a></sup></td><td>"Very early development"<sup><a href="#rt1">[5]</a></sup></td><td>Free beta<sup><a href="#gf1">[7]</a></sup></td><td>Available on supported PCs<sup><a href="#ms1">[9]</a></sup></td></tr>
+<tr><th scope="row">Writes to your notes</th><td>Yes, short takeaways in Obsidian daily notes</td><td>—</td><td>—</td><td>—</td><td>Keeps its own local memory, exposed over MCP<sup><a href="#gf2">[8]</a></sup></td><td>—</td></tr>
+<tr><th scope="row">Status</th><td>1.0.0</td><td>Shut down: capture disabled Dec 19, 2025 after Meta acquired Limitless<sup><a href="#rw1">[1]</a><a href="#rw2">[2]</a></sup></td><td>Actively developed<sup><a href="#sp1">[3]</a></sup></td><td>"Very early development"<sup><a href="#rt1">[5]</a></sup></td><td>Free beta<sup><a href="#gf1">[7]</a></sup></td><td>Available on supported PCs<sup><a href="#ms1">[9]</a></sup></td></tr>
 </tbody>
 </table>
 </div>
 <p><small>"—" and "Not covered here" mean we did not check a primary source for that cell. Rewind's AI features are left out because the app has been discontinued.</small></p>
 
 <h2 id="when-to-choose-another-tool">When to choose another tool</h2>
-<p>xCreen is a narrow tool: a Mac developer build for people who already run Hermes Agent and keep notes in Obsidian. Another option is often the better fit:</p>
+<p>xCreen is for Mac users who run Hermes Agent and keep notes in Obsidian. Otherwise:</p>
 <ul>
   <li><strong>You need Windows or Linux, or audio transcription:</strong> consider screenpipe, which lists macOS, Windows and Linux and transcribes audio<sup><a href="#sp1">[3]</a></sup>. Check its license terms if you plan commercial use<sup><a href="#sp2">[4]</a></sup>. xCreen is macOS-only and does not capture audio.</li>
   <li><strong>You want an MIT-licensed, searchable screen history with no AI agent to set up:</strong> consider Retrace, which captures screenshots with Vision OCR into SQLite full-text search and lists no active model inference<sup><a href="#rt1">[5]</a></sup>. It describes itself as in very early development. xCreen requires a working Hermes Agent.</li>
   <li><strong>You don't want screenshots at all:</strong> Goldfish reads foreground-window text via Accessibility without screenshots and exposes its memory over MCP; its AI runs in the cloud<sup><a href="#gf2">[8]</a></sup>. It is a free beta on macOS and Windows<sup><a href="#gf1">[7]</a></sup>.</li>
   <li><strong>You use a Windows 11 Copilot+ PC and want processing to stay on the device:</strong> Microsoft Recall is built in on supported PCs<sup><a href="#ms1">[9]</a></sup> and processes snapshots locally<sup><a href="#ms2">[10]</a></sup>.</li>
-  <li><strong>You want a polished, notarized consumer app:</strong> xCreen is not that yet. It is not notarized or security-audited, and you build it from source.</li>
 </ul>
 
 <h2 id="when-xcreen-fits">When xCreen fits</h2>
 <ul>
-  <li>You run Hermes Agent on a Mac and want screen context to flow into the same agent and models you already use, including a local model if you configure one.</li>
-  <li>You want distilled, source-linked findings in your Obsidian Daily notes rather than another searchable archive to dig through.</li>
-  <li>You want an Apache-2.0 codebase you can read, modify and use commercially.</li>
-  <li>You want capture off by default, a single user-only switch to stop it, and raw evidence deleted after seven days.</li>
+  <li>You run Hermes Agent on a Mac and want it to know what you've been working on, with the models you already use.</li>
+  <li>You want short takeaways in your Obsidian daily notes, not another archive to dig through.</li>
+  <li>You want Apache-2.0 code you can read, change and use commercially.</li>
+  <li>You want capture off until you turn it on, one switch to stop it, and screenshots gone after seven days.</li>
 </ul>
-<p>xCreen's own limits are listed plainly in <a href="https://github.com/Al-ex-W/xCreen/blob/main/SECURITY.md">SECURITY.md</a>: browser password fields, password-manager extensions and private windows are not detected or redacted, and model inference goes to whichever provider your Hermes route uses.</p>
+<p>What xCreen doesn't cover is in <a href="https://github.com/Al-ex-W/xCreen/blob/main/SECURITY.md">SECURITY.md</a>: browser password fields, password-manager extensions and private windows are not detected or redacted, and model inference goes to whichever provider your Hermes route uses.</p>
 <p><a href="../">What xCreen is and how it works</a> · <a href="../faq/">FAQ</a></p>
 
 <h2 id="sources">Sources</h2>

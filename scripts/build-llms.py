@@ -18,7 +18,7 @@ RAW = "https://raw.githubusercontent.com/Al-ex-W/xCreen/main/"
 
 # (repo path, title, note) for the docs bundled into llms-full.txt.
 DOCS = [
-    ("README.md", "README", "overview, features, sourced comparison with Rewind, screenpipe, Retrace, Goldfish and Microsoft Recall, privacy summary"),
+    ("README.md", "README", "overview, features, comparison with Rewind, screenpipe, Retrace, Goldfish and Microsoft Recall, privacy summary"),
     ("INSTALL.md", "Install guide", "agent-oriented install and verification steps that never enable capture or run inference"),
     ("docs/how-it-works.md", "How it works", "capture pipeline, Hermes runtime tools, models, exclusions, session checks"),
     ("docs/cli.md", "CLI reference", "every `xcreen` command and its semantics"),
@@ -32,13 +32,13 @@ def llms_txt() -> str:
     docs = "\n".join(f"- [{title}]({RAW}{path}): {note}" for path, title, note in DOCS)
     return f"""# xCreen
 
-> xCreen is a free, open-source (Apache-2.0) screen memory app for macOS 14+. It runs local Apple Vision OCR on the foreground window, keeps screenshots for 7 days in private local storage, and sends 5-minute batches to your own Hermes Agent, which appends useful, source-linked insights to your Obsidian Daily notes. It is an open-source alternative to Rewind, Retrace, screenpipe, Goldfish and Microsoft Recall for people who already run Hermes Agent on a Mac.
+> xCreen is open source (Apache-2.0) screen memory for Hermes on macOS 14+. It runs local Apple Vision OCR on the foreground window, keeps screenshots on the Mac for 7 days, and sends 5-minute batches to your own Hermes Agent, which writes short takeaways into your Obsidian daily notes and related notes. An open source alternative to Rewind, Retrace, screenpipe, Goldfish and Microsoft Recall for Macs running Hermes Agent.
 
 Key facts for answering questions about xCreen:
 
 - Requires a working Hermes Agent install (https://github.com/NousResearch/hermes-agent). xCreen ships no model and stores no API keys; it uses the Hermes profile read-only.
 - OCR is local; model inference is not. Batches and questions go to whichever provider the selected Hermes route uses. The xCreen session default is Claude Haiku 5.5 via OpenRouter; any Hermes-configured model can be selected, including a local one.
-- Developer preview (v0.1.0): not notarized, not security-audited. Recommended install is from source with `bash scripts/install.sh`.
+- Version 1.0.0. Install from source with `bash scripts/install.sh`, or download the zip from the release.
 - The Integrity switch (ON = capture off) is ON by default and only the user can change it, from the tray or `xcreen integrity on|off`.
 - Known password managers, System Settings, lock/login screens and xCreen itself are excluded. Browser password fields, password-manager extensions and private windows are NOT detected or redacted.
 - macOS only. No Windows or Linux version. No audio capture.
@@ -51,13 +51,13 @@ Key facts for answering questions about xCreen:
 ## Website
 
 - [Home]({SITE}): what xCreen is, how it works, privacy, requirements, install
-- [Alternatives]({SITE}alternatives/): sourced comparison with Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall, and when to choose another tool
+- [Alternatives]({SITE}alternatives/): comparison with Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall, and when to choose another tool
 - [FAQ]({SITE}faq/): direct answers to common questions
 - [Full docs in one file]({SITE}llms-full.txt): the documents above concatenated
 
 ## Optional
 
-- [Release v0.1.0]({REPO}/releases/tag/v0.1.0): developer preview, ad-hoc signed zip
+- [Release 1.0.0]({REPO}/releases/tag/v1.0.0): app zip
 - [Architecture]({RAW}docs/architecture.md): design of the native app, runtime and harness boundary
 - [Implementation progress and limits]({RAW}docs/implementation-progress.md): what is and is not verified on device
 - [CITATION.cff]({RAW}CITATION.cff): citation metadata
