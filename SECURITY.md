@@ -1,6 +1,6 @@
 # Security and privacy
 
-Developer build, not security-audited or notarized. The native capture pipeline is connected; this is not a disconnected UI preview. Integrity defaults ON only when no explicit preference exists and preserves the user's chosen preference. Only explicit user actions change it. Permission/session/app gates can suspend capture without changing that preference. Integrity ON blocks new screenshots/OCR and automatic transmission; it does not erase retained evidence or provider history, or block deliberate historical questions.
+Not security-audited or notarized. Integrity defaults ON only when no explicit preference exists and preserves the user's chosen preference. Only explicit user actions change it. Permission/session/app gates can suspend capture without changing that preference. Integrity ON blocks new screenshots/OCR and automatic transmission; it does not erase retained evidence or provider history, or block deliberate historical questions.
 
 ## Foreground exclusions and their limits
 
@@ -30,4 +30,4 @@ Real TCC, capture, lock/sleep transitions, OCR, provider inference and live vaul
 
 Report privately through GitHub private vulnerability reporting: **[Security → Report a vulnerability](https://github.com/Al-ex-W/xCreen/security/advisories/new)**. Do not open a public issue or pull request for a security problem. If that form is unavailable, open a public issue that only asks for a private contact channel and includes no details.
 
-Include the macOS version, the xCreen commit, the affected component and reproduction steps using synthetic data. Never include real screenshots, OCR text, vault contents, Hermes transcripts or credentials. Only the latest `main` is supported; there are no released versions yet. This is a single-maintainer project, so response times are best-effort.
+Include the macOS version, the xCreen commit, the affected component and reproduction steps using synthetic data. Never include real screenshots, OCR text, vault contents, Hermes transcripts or credentials. Only the latest release and `main` are supported. This is a single-maintainer project, so response times are best-effort.

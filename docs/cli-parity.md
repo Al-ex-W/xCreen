@@ -9,13 +9,13 @@ The app is authoritative. `bin/xcreen` is a standalone Python 3 client, installe
 | Session visibility | Show session in Hermes; persisted, default OFF (hidden) | `session visibility get/on/off` |
 | Connection | Connect / Disconnect | `connection connect/disconnect/reconnect` |
 | Models | Provider-aware session picker | `models list`, `model select PROVIDER MODEL` |
-| Paths | Local settings Save | `settings show/set python/root/vault VALUE` |
+| Paths | Settings Save | `settings show/set python/root/vault VALUE` |
 | Detection | Auto-detect | `settings autodetect` or `autodetect` |
 | Question | Ask / Enter | `ask QUESTION [--wait-ms N]` |
 | Cancellation | Cancel | `cancel` |
 | Durable history | Existing xCreen conversation in Hermes | `history [--after CURSOR]` reads sanitized snapshot pages |
-| Batch state | Durable batches / Refresh / Next page | `batches [--after BATCH_ID]`, at most 20 metadata records |
-| Receipt verification | Durable batches / Verify receipts | `verify`, read-only host reconciliation, no inference/note writes |
+| Batch state | Batches / Refresh / Next page | `batches [--after BATCH_ID]`, at most 20 metadata records |
+| Receipt verification | Batches / Verify receipts | `verify`, read-only host reconciliation, no inference/note writes |
 | Reply images | Resolved attachment cards / Open | `images list/open ID` |
 | Panel | Status item / handoff | `panel show/hide` |
 | Lifecycle | Quit | `start/stop/restart/quit` |

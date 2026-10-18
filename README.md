@@ -1,18 +1,14 @@
-# xCreen — open-source screen memory for macOS
+# xCreen: screen memory for Hermes on macOS
 
-**Open-source (Apache-2.0) screen memory for macOS that writes useful, source-linked insights into your Obsidian daily notes, powered by your own [Hermes Agent](https://github.com/NousResearch/hermes-agent) and whichever models you configure.**
+**xCreen reads your screen with local OCR and has your [Hermes Agent](https://github.com/NousResearch/hermes-agent) write short takeaways into your Obsidian daily notes.**
 
-Looking for an open-source Rewind or Microsoft Recall alternative for Mac? xCreen is one, also comparable to Retrace, screenpipe and Goldfish, for people who already run Hermes Agent. [Website](https://al-ex-w.github.io/xCreen/) · [FAQ](https://al-ex-w.github.io/xCreen/faq/) · [Alternatives compared](https://al-ex-w.github.io/xCreen/alternatives/)
+An open source alternative to Rewind and Microsoft Recall, for Macs running Hermes. [Website](https://al-ex-w.github.io/xCreen/) · [FAQ](https://al-ex-w.github.io/xCreen/faq/) · [Alternatives compared](https://al-ex-w.github.io/xCreen/alternatives/)
 
 [![Verify](https://github.com/Al-ex-W/xCreen/actions/workflows/verify.yml/badge.svg)](https://github.com/Al-ex-W/xCreen/actions/workflows/verify.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: macOS 14+](https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey.svg)](INSTALL.md)
 
 ![xCreen menu-bar tray](docs/assets/tray.png)
-
-<sub>The real tray view rendered offscreen with synthetic demo data (`scripts/render-screenshots.sh`); not a capture of anyone's screen.</sub>
-
-> **Developer build.** Not notarized and not security-audited. Integrity (capture off) is ON by default.
 
 ## What it does
 
@@ -25,7 +21,7 @@ Looking for an open-source Rewind or Microsoft Recall alternative for Mac? xCree
 
 ## xCreen vs alternatives
 
-Facts come from each project's own public pages, checked October 2026 ([sources](#sources)). Products change, so check the linked pages yourself.
+Checked October 2026 against each project's own pages ([sources](#sources)).
 
 | | xCreen | Rewind | screenpipe | Retrace | Goldfish | Microsoft Recall |
 |---|---|---|---|---|---|---|
@@ -33,19 +29,18 @@ Facts come from each project's own public pages, checked October 2026 ([sources]
 | License / source | Apache-2.0, open source | — | Source-available Screenpipe Commercial License; personal non-commercial use free, commercial use needs a license[^sp2] | MIT, open source[^rt2] | Not covered here | Windows feature |
 | Capture method | Foreground-window screenshots + local Vision OCR | Screen and audio recording[^rw1] | Accessibility tree, OCR fallback, audio transcription[^sp1] | Screenshots every 2 s + Vision OCR, SQLite FTS5[^rt1] | Foreground-window text via Accessibility, no screenshots[^gf2] | Periodic snapshots[^ms1] |
 | Where AI runs | Whichever provider your Hermes route uses (OCR is local, inference usually isn't) | — | Local models (e.g. Ollama) or cloud AI, as you configure[^sp1] | No model inference listed as active[^rt1] | Cloud: Azure OpenAI via Cloudflare; memory stored locally[^gf2] | Processed locally on the PC[^ms2] |
-| Writes to your notes | Yes, sourced entries in Obsidian Daily notes | — | — | — | Keeps its own local memory, exposed over MCP[^gf2] | — |
-| Status | Developer build | Shut down: capture disabled Dec 19, 2025 after Meta acquired Limitless[^rw1][^rw2] | Actively developed[^sp1] | "Very early development"[^rt1] | Free beta[^gf1] | Available on supported PCs[^ms1] |
+| Writes to your notes | Yes, short takeaways in Obsidian daily notes | — | — | — | Keeps its own local memory, exposed over MCP[^gf2] | — |
+| Status | 1.0.0 | Shut down: capture disabled Dec 19, 2025 after Meta acquired Limitless[^rw1][^rw2] | Actively developed[^sp1] | "Very early development"[^rt1] | Free beta[^gf1] | Available on supported PCs[^ms1] |
 
 "—" and "Not covered here" mean we did not check a primary source for that cell. Rewind's AI features are left out because the app has been discontinued.
 
 ## Requirements and who it's for
 
-xCreen suits Mac users who already run Hermes Agent, keep notes in Obsidian, and are fine using a developer build.
+For Mac users who run Hermes Agent and keep notes in Obsidian.
 
 - **A working [Hermes Agent](https://github.com/NousResearch/hermes-agent) install is required.** xCreen does not include a model or keep API keys. It uses your Hermes profile read-only.
 - **Local OCR does not mean local inference.** Batches and questions go to the provider behind your chosen route, and that provider's retention rules apply. For on-device inference, configure a local model in Hermes.
-- **Developer build.** You build it from source with Swift/Xcode. It is not notarized. Use a stable signing identity so macOS keeps the Screen Recording permission across reinstalls.
-- macOS 14 or later, Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.
+- macOS 14 or later. Building from source needs Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.
 
 ## Quick start
 
@@ -55,7 +50,7 @@ bash scripts/install.sh           # builds, installs to ~/Applications, copies `
 xcreen status                     # Integrity should report ON (capture paused)
 ```
 
-Turn Integrity OFF from the tray when you want capture to start. See [INSTALL.md](INSTALL.md) for vault setup, signing, verification and uninstalling.
+Or download the zip from [release 1.0.0](https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0). Turn Integrity OFF from the tray to start capture. See [INSTALL.md](INSTALL.md) for vault setup, signing, verification and uninstalling.
 
 ## Privacy and safety
 

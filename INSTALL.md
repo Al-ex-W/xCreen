@@ -10,7 +10,11 @@ bash scripts/install.sh --no-launch
 
 The installer obtains Hermes's Python/source root from its official launcher, locates an optional vault using `OBSIDIAN_VAULT_PATH` or Obsidian metadata, builds and copies the app to `~/Applications`, pre-fills settings, and copies the standalone Python CLI to `~/.local/bin/xcreen`. Add that directory to PATH. `--vault "/absolute/vault/path"` overrides detection. Omit `--no-launch` to launch. Integrity defaults ON; a saved explicit preference is restored, but actual capture stays blocked until current safety gates pass. Startup never requests permissions.
 
-The copied CLI and bundled runtime do not depend on the checkout. The installer uses a configured `XCREEN_SIGN_IDENTITY`, otherwise an available Apple Development identity, otherwise ad-hoc signing. This is not a notarized consumer release. A stable signing identity is needed to preserve grants across reinstalls.
+The copied CLI and bundled runtime do not depend on the checkout. The installer uses a configured `XCREEN_SIGN_IDENTITY`, otherwise an available Apple Development identity, otherwise ad-hoc signing. A stable signing identity keeps the Screen Recording permission across reinstalls.
+
+## Install from the release zip
+
+Download the zip from [release 1.0.0](https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0), unzip it and move `xCreen.app` to Applications. The app isn't notarized, so on first open go to System Settings → Privacy & Security and click Open Anyway.
 
 ## Verify without capture or inference
 
@@ -46,7 +50,7 @@ The **Show session in Hermes** tray toggle defaults OFF (hidden). Use `xcreen se
 
 - Integrity OFF in the tray or `xcreen integrity off` explicitly consents to capture. The same actual service runs permission/state/exclusion gates for both interfaces. Permission denial leaves the user's desired switch unchanged and reports capture blocked; an explicit OFF action may show macOS's permission/settings UI. Do not bypass it. No development test should execute this action against a real capture service.
 - `xcreen ask "QUESTION"` explicitly authorizes that question in the xCreen session. Captured evidence can reach a model provider, and Hermes/provider history may outlive local seven-day retention.
-- Configuring a vault enables the scoped source-bound writer for existing Daily notes; do not configure it without understanding that boundary.
+- Configuring a vault enables the scoped note writer for existing Daily notes; do not configure it without understanding that boundary.
 - On macOS 26+, Spotlight offers "Ask xCreen" (asks for a question, then opens the panel with it filled in; you submit) and "Open xCreen". The build fails if Xcode's App Intents metadata lacks these App Shortcuts. Spotlight picks them up after the installed app is registered and launched once; indexing can take a minute and ranking is up to macOS.
 
 ## Uninstall
