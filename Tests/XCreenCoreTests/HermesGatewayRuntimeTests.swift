@@ -164,4 +164,17 @@ for line in sys.stdin:
         try source.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
+
+    func testGatewayChildEnvironmentIsAllowListed() {
+        let env = HermesGateway.childEnvironment([
+            "HOME": "/Users/synthetic", "USER": "synthetic", "LOGNAME": "synthetic", "LANG": "en_US.UTF-8", "LC_ALL": "C",
+            "TMPDIR": "/tmp/x/", "HERMES_HOME": "/h", "HERMES_PROFILE": "p", "PATH": "/evil:/usr/bin",
+            "PYTHONPATH": "/evil", "PYTHONHOME": "/evil", "PYTHONSTARTUP": "/evil.py", "DYLD_INSERT_LIBRARIES": "/evil.dylib",
+            "DYLD_LIBRARY_PATH": "/evil", "LD_PRELOAD": "/evil.so", "OPENAI_API_KEY": "synthetic", "PYTHONUNBUFFERED": "0",
+        ])
+        for name in ["PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "LD_PRELOAD", "OPENAI_API_KEY"] { XCTAssertNil(env[name], name) }
+        XCTAssertEqual(env["PATH"], HermesGateway.safePath)
+        XCTAssertEqual(env["PYTHONUNBUFFERED"], "1")
+        for name in ["HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "HERMES_HOME", "HERMES_PROFILE"] { XCTAssertNotNil(env[name], name) }
+    }
 }

@@ -117,6 +117,19 @@ public actor HermesGateway: HermesGatewayTransport {
         return handle
     }
 
+    /// Fixed search path for tools Hermes may spawn; never inherited from the parent.
+    static let safePath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    private static let passthroughNames: Set<String> = ["HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "TZ", "SHELL", "__CF_USER_TEXT_ENCODING", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE"]
+    /// Allow-list environment for the gateway child: identity, locale, temp dir and Hermes' own
+    /// `HERMES_*` settings only. Interpreter/loader injection vars (PYTHONPATH, PYTHONHOME,
+    /// PYTHONSTARTUP, DYLD_*, LD_*) and everything else from the parent are dropped.
+    static func childEnvironment(_ parent: [String: String]) -> [String: String] {
+        var env = parent.filter { name, _ in passthroughNames.contains(name) || name.hasPrefix("LC_") || name.hasPrefix("HERMES_") }
+        env["PATH"] = safePath
+        env["PYTHONUNBUFFERED"] = "1"
+        return env
+    }
+
     public init(defaultDeadline: TimeInterval = 20, longDeadline: TimeInterval = 600) {
         self.defaultDeadline = min(max(defaultDeadline, 0.1), 60)
         self.longDeadline = min(max(longDeadline, self.defaultDeadline), 1_800)
@@ -127,7 +140,7 @@ public actor HermesGateway: HermesGatewayTransport {
         let token = UUID(); processToken = token
         let (executable, arguments, directory) = try launch.processConfiguration()
         let child = Process(); child.executableURL = URL(fileURLWithPath: executable); child.arguments = arguments; child.currentDirectoryURL = directory
-        child.environment = ProcessInfo.processInfo.environment.merging(["PYTHONUNBUFFERED": "1"]) { _, new in new }
+        child.environment = Self.childEnvironment(ProcessInfo.processInfo.environment)
         let stdin = Pipe(), stdout = Pipe(); child.standardInput = stdin; child.standardOutput = stdout; child.standardError = Self.stderrSink()
         child.terminationHandler = { [weak self] _ in Task { await self?.disconnect(token: token) } }
         try child.run(); process = child; input = stdin.fileHandleForWriting
