@@ -43,6 +43,8 @@ Checked October 2026 against each project's own pages ([sources](#sources)).
 
 "—" and "Not covered here" mean we did not check a primary source for that cell. Rewind's AI features are left out because the app has been discontinued.
 
+Also compared, with sources: [ActivityWatch](https://al-ex-w.github.io/xCreen/alternatives/#activitywatch), [Dayflow](https://al-ex-w.github.io/xCreen/alternatives/#dayflow), [OpenRecall](https://al-ex-w.github.io/xCreen/alternatives/#openrecall), [Pensieve](https://al-ex-w.github.io/xCreen/alternatives/#pensieve), [LUCI](https://al-ex-w.github.io/xCreen/alternatives/#luci) and [Limitless](https://al-ex-w.github.io/xCreen/alternatives/#limitless) on the [alternatives page](https://al-ex-w.github.io/xCreen/alternatives/).
+
 ## Requirements and who it's for
 
 For Mac users who run Hermes Agent and keep notes in Obsidian.
@@ -85,9 +87,11 @@ xcreen batches
 
 Full command list and semantics: [docs/cli.md](docs/cli.md).
 
+Local CLI (JSON) today; MCP server planned. See the [CLI page](https://al-ex-w.github.io/xCreen/cli/) and the [roadmap](docs/roadmap.md).
+
 ## Documentation
 
-- [Install](INSTALL.md) · [CLI reference](docs/cli.md) · [How it works](docs/how-it-works.md)
+- [Install](INSTALL.md) · [CLI reference](docs/cli.md) · [How it works](docs/how-it-works.md) · [Roadmap](docs/roadmap.md)
 - [Architecture](docs/architecture.md) · [CLI/tray parity](docs/cli-parity.md) · [Native durability](docs/durable-native-processing.md)
 - [Implementation progress and limits](docs/implementation-progress.md) · [Working specification](docs/working-spec.md) · [Toolkit contract](docs/toolkit-contract.md)
 - [Platform research](docs/platform-research.md) · [macOS session research](docs/macos-session-research.md) · [License research](docs/licensing-research.md)

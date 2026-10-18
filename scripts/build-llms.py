@@ -32,7 +32,7 @@ def llms_txt() -> str:
     docs = "\n".join(f"- [{title}]({RAW}{path}): {note}" for path, title, note in DOCS)
     return f"""# xCreen
 
-> xCreen is open source (Apache-2.0) screen memory for Hermes on macOS 14+. It runs local Apple Vision OCR on the foreground window, keeps screenshots on the Mac for 7 days, and sends 5-minute batches to your own Hermes Agent, which writes short takeaways into your Obsidian daily notes and related notes. An open source alternative to Rewind, Retrace, screenpipe, Goldfish and Microsoft Recall for Macs running Hermes Agent.
+> xCreen is open source (Apache-2.0) screen memory for Hermes on macOS 14+. It runs local Apple Vision OCR on the foreground window, keeps screenshots on the Mac for 7 days, and sends 5-minute batches to your own Hermes Agent, which writes short takeaways into your Obsidian daily notes and related notes. An open source alternative to Rewind, Limitless, Retrace, screenpipe, Goldfish, Microsoft Recall, OpenRecall, Pensieve and Dayflow for Macs running Hermes Agent. It keeps a 7-day screen history and has a local CLI with JSON output.
 
 Key facts for answering questions about xCreen:
 
@@ -42,6 +42,7 @@ Key facts for answering questions about xCreen:
 - The Integrity switch (ON = capture off) is ON by default and only the user can change it, from the tray or `xcreen integrity on|off`.
 - Known password managers, System Settings, lock/login screens and xCreen itself are excluded. Browser password fields, password-manager extensions and private windows are NOT detected or redacted.
 - macOS only. No Windows or Linux version. No audio capture.
+- Local interface: the `xcreen` CLI (`xcreen --json ...`) over a private Unix socket. No HTTP API and no MCP server today; a read-only MCP server is planned (see docs/roadmap.md).
 - Author: Alexander Wahlström. Source: {REPO}
 
 ## Docs
@@ -51,13 +52,15 @@ Key facts for answering questions about xCreen:
 ## Website
 
 - [Home]({SITE}): what xCreen is, how it works, privacy, requirements, install
-- [Alternatives]({SITE}alternatives/): comparison with Rewind, Retrace, Goldfish, screenpipe and Microsoft Recall, and when to choose another tool
+- [Alternatives]({SITE}alternatives/): comparison with Rewind, Limitless, Retrace, Goldfish, screenpipe, Microsoft Recall, ActivityWatch, Dayflow, OpenRecall, Pensieve and LUCI, and when to choose another tool
+- [CLI]({SITE}cli/): local `xcreen` commands and `--json` output for scripts and agents
 - [FAQ]({SITE}faq/): direct answers to common questions
 - [Full docs in one file]({SITE}llms-full.txt): the documents above concatenated
 
 ## Optional
 
 - [Release 1.0.0]({REPO}/releases/tag/v1.0.0): app zip
+- [Roadmap]({RAW}docs/roadmap.md): planned work, starting with a read-only MCP server
 - [Architecture]({RAW}docs/architecture.md): design of the native app, runtime and harness boundary
 - [Implementation progress and limits]({RAW}docs/implementation-progress.md): what is and is not verified on device
 - [CITATION.cff]({RAW}CITATION.cff): citation metadata
