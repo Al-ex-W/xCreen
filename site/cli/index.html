@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>xCreen local CLI and JSON interface: xcreen commands and --json output</title>
+<meta name="description" content="The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Local only; read-only MCP server planned.">
+<link rel="canonical" href="https://al-ex-w.github.io/xCreen/cli/">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="xCreen">
+<meta property="og:title" content="xCreen local CLI and JSON interface">
+<meta property="og:description" content="The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Local only; read-only MCP server planned.">
+<meta property="og:url" content="https://al-ex-w.github.io/xCreen/cli/">
+<meta property="og:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="xCreen: screen memory for Hermes on macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="xCreen local CLI and JSON interface">
+<meta name="twitter:description" content="The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Local only; read-only MCP server planned.">
+<meta name="twitter:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "xCreen local CLI and JSON interface",
+  "description": "The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Local only; read-only MCP server planned.",
+  "url": "https://al-ex-w.github.io/xCreen/cli/",
+  "mainEntityOfPage": "https://al-ex-w.github.io/xCreen/cli/",
+  "datePublished": "2026-10-18",
+  "dateModified": "2026-10-18",
+  "inLanguage": "en",
+  "image": "https://al-ex-w.github.io/xCreen/assets/social-preview.png",
+  "author": {
+    "@type": "Person",
+    "name": "Alexander Wahlström",
+    "url": "https://github.com/Al-ex-W"
+  },
+  "about": {
+    "@type": "SoftwareApplication",
+    "name": "xCreen",
+    "operatingSystem": "macOS 14+",
+    "url": "https://github.com/Al-ex-W/xCreen"
+  },
+  "keywords": "xcreen CLI, JSON, local CLI, screen history, searchable timeline, Hermes Agent, macOS"
+}
+</script>
+</head>
+<body>
+<header>
+  <a class="brand" href="../">xCreen</a>
+  <nav><a href="../alternatives/">Alternatives</a><a href="../faq/">FAQ</a><a href="./">CLI</a><a href="https://github.com/Al-ex-W/xCreen">GitHub</a></nav>
+</header>
+<main>
+<h1>xCreen local CLI and JSON interface</h1>
+<p class="lead">The <code>xcreen</code> command talks to the running xCreen app over a private, same-user Unix socket. Use it from a terminal, a script or an agent with shell access.</p>
+<p>The installer copies it to <code>~/.local/bin/xcreen</code>. There is no network listener and no HTTP API. Full reference: <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/cli.md">docs/cli.md</a>.</p>
+
+<h2 id="commands">Commands</h2>
+<pre><code>usage: xcreen [--json] COMMAND
+  status                         live app-owned state (never cached status.json)
+  integrity [get|on|off]          off is explicit capture consent, subject to macOS gates
+  session visibility [get|on|off]  show/hide the same Hermes session (default off)
+  connection connect|disconnect|reconnect  (also accepted as top-level commands)
+  models [list] | model select PROVIDER MODEL   (select also saves the xCreen default)
+  model default [get] | model default PROVIDER MODEL  xCreen-session default only
+  settings [show] | settings set python|root|vault VALUE
+  settings autodetect | autodetect
+  ask QUESTION [--wait-ms 0..30000]  explicit submission to the existing xCreen session
+  history [--after CURSOR]        bounded sanitized history pages
+  batches [--after BATCH_ID]      up to 20 durable batch metadata records
+  batches retry                   verify, then re-queue only receipt-proven zero-effect batches
+  verify                         read-only receipt reconciliation; no inference/note writes
+  cancel
+  images [list|open ID]           reply attachment metadata/open through the app
+  panel [show|hide]
+  start | stop | restart | quit
+  logs [-n N] [--no-follow] [--gateway]</code></pre>
+
+<h2 id="json-output">JSON output</h2>
+<p>Put <code>--json</code> before the command. You get the app's full response as one JSON object:</p>
+<pre><code>{
+  "ok": true,
+  "error": null,
+  "reply": "…answer text, for ask…",
+  "snapshot": {
+    "app": "…", "connected": true, "integrity": true, "capture": "…",
+    "message": "…", "models": [{"provider": "…", "model": "…"}],
+    "currentModel": {"provider": "…", "model": "…"},
+    "defaultModel": {"provider": "…", "model": "…"}, "defaultModelApplied": true,
+    "settings": {"python": "…", "root": "…", "vault": "…"},
+    "images": [{"id": "…", "timestamp": "…"}],
+    "sessionVisible": false, "sessionVisibilityPending": false
+  }
+}</code></pre>
+<p>Without <code>--json</code>, the CLI prints the <code>reply</code> if there is one, otherwise the <code>snapshot</code>. Errors go to stderr as <code>xcreen: …</code> with exit code 1. Values shown as "…" vary; fields may be absent when unknown (for example <code>actualSessionVisible</code>).</p>
+
+<h2 id="examples">Examples</h2>
+<pre><code>xcreen --json status
+xcreen --json ask "What was the error I saw in the build log this morning?" --wait-ms 30000
+xcreen --json history
+xcreen --json batches
+xcreen verify
+xcreen integrity on</code></pre>
+<p><code>ask</code> submits to the one existing xCreen session in your Hermes Agent and waits at most 30 seconds; a timeout does not cancel the question, so read the answer later with <code>history</code>. <code>xcreen integrity off</code> starts capture and is your consent; scripts and agents should never run it for you.</p>
+
+<h2 id="hermes-agent">Use with Hermes Agent</h2>
+<p>Inside xCreen's own Hermes session, the model already has scoped tools for OCR search, nearby screenshots and capture coverage. Other Hermes chats with terminal access can run <code>xcreen --json ask "…"</code> to ask that session.</p>
+
+<h2 id="planned-mcp-server">Planned: MCP server</h2>
+<p>xCreen does not have an MCP server today. A read-only one is planned, with these tools:</p>
+<ul>
+  <li><code>search</code>: OCR text search over recent screen history, with timestamps</li>
+  <li><code>recent</code>: latest captured text for a time range</li>
+  <li><code>coverage</code>: when capture was running or paused</li>
+  <li><code>ask</code>: a question to the xCreen session</li>
+</ul>
+<p>It will not change Integrity or settings. Track it in the <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/roadmap.md">roadmap</a>.</p>
+<p><a href="../">What xCreen is</a> · <a href="../faq/">FAQ</a> · <a href="../alternatives/">Alternatives</a></p>
+</main>
+<footer>
+  <p>xCreen · <a href="https://github.com/Al-ex-W/xCreen/blob/main/LICENSE">Apache-2.0</a> · © Alexander Wahlström · <a href="https://github.com/Al-ex-W/xCreen">GitHub</a> · <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/roadmap.md">Roadmap</a>. No tracking or analytics on this site.</p>
+</footer>
+</body>
+</html>
