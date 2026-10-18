@@ -48,6 +48,7 @@ for frame,expected in [(b'{"command":"status"}\\n',True),(b'bad\\n',False)]:
     func testRejectedPeerIsCheckedBeforeSlotAndNeverReachesHandler() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
+        signal(SIGPIPE, SIG_IGN) // slow CI runners: a closed peer must not kill the test process
         let gate = DispatchSemaphore(value: 0)
         let checks = Counter(), handled = Counter()
         // First 8 peers are authorized and parked in the handler (filling every slot); later peers are rejected.
@@ -60,7 +61,7 @@ for frame,expected in [(b'{"command":"status"}\\n',True),(b'bad\\n',False)]:
         var parked: [Int32] = []
         defer { parked.forEach { close($0) } }
         for _ in 0..<8 { let fd = try Self.connect(path); _ = "{\"command\":\"status\"}\n".withCString { write(fd, $0, strlen($0)) }; parked.append(fd) }
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = Date().addingTimeInterval(30) // GCD may grow its pool slowly on small runners
         while handled.value < 8 && Date() < deadline { usleep(10_000) }
         XCTAssertEqual(handled.value, 8)
         for _ in 0..<5 {
@@ -76,6 +77,8 @@ for frame,expected in [(b'{"command":"status"}\\n',True),(b'bad\\n',False)]:
 
     private static func connect(_ path: String) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        var one: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
         let bytes = Array(path.utf8) + [0]
         withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
