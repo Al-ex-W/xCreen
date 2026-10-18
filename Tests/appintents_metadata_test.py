@@ -119,3 +119,27 @@ class AppIntentsMetadataCheckTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MissingConstValuesPolicyTests(unittest.TestCase):
+    def run_policy(self, version, ci):
+        env = {k: v for k, v in os.environ.items() if k != 'CI'}
+        if ci is not None: env['CI'] = ci
+        return subprocess.run([sys.executable, str(SCRIPT), '--allow-missing-constvalues', version],
+                              env=env, capture_output=True, text=True)
+
+    def test_ci_with_old_xcode_skips_with_warning(self):
+        result = self.run_policy('26.6', 'true')
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('warning', result.stderr)
+
+    def test_local_old_xcode_stays_hard_failure(self):
+        for ci in (None, 'false', ''):
+            self.assertEqual(self.run_policy('26.6', ci).returncode, 1)
+
+    def test_ci_with_required_xcode_stays_hard_failure(self):
+        for version in ('27.0', '27.1', '28'):
+            self.assertEqual(self.run_policy(version, 'true').returncode, 1)
+
+    def test_unparseable_version_fails(self):
+        self.assertEqual(self.run_policy('garbage', 'true').returncode, 1)

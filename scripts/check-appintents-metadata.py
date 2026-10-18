@@ -2,9 +2,13 @@
 """Fail loudly when a built Metadata.appintents bundle cannot surface Ask xCreen in Spotlight.
 
 Usage: check-appintents-metadata.py <path/to/Metadata.appintents>
+       check-appintents-metadata.py --allow-missing-constvalues <xcode-version>
+The second form exits 0 (with a warning) only when CI=true and Xcode is older than
+REQUIRED_XCODE_MAJOR, whose swift build cannot emit XCreenApp const values; locally it always fails.
 Prints the App Shortcut phrases on success. Exit 1 with a reason on stderr otherwise.
 """
 import json
+import os
 import pathlib
 import sys
 
@@ -18,7 +22,24 @@ def fail(message):
     return 1
 
 
+REQUIRED_XCODE_MAJOR = 27
+
+
+def allow_missing_constvalues(version):
+    try:
+        major = int(version.split('.')[0])
+    except ValueError:
+        return fail(f'unparseable Xcode version {version!r}')
+    if os.environ.get('CI') == 'true' and major < REQUIRED_XCODE_MAJOR:
+        print(f'warning: CI Xcode {version} < {REQUIRED_XCODE_MAJOR} emits no XCreenApp .swiftconstvalues; '
+              'skipping App Intents metadata (Spotlight actions NOT verified on this runner).', file=sys.stderr)
+        return 0
+    return fail(f'swift build emitted no XCreenApp .swiftconstvalues with Xcode {version}; Spotlight actions would be missing')
+
+
 def main(argv):
+    if len(argv) == 3 and argv[1] == '--allow-missing-constvalues':
+        return allow_missing_constvalues(argv[2])
     if len(argv) != 2:
         return fail('usage: check-appintents-metadata.py <Metadata.appintents>')
     root = pathlib.Path(argv[1])

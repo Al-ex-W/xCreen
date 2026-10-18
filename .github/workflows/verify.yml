@@ -9,6 +9,12 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
+      # Hosted images default to an older Xcode; use the newest installed one.
+      - name: Select newest Xcode
+        run: |
+          newest="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false

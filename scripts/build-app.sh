@@ -21,6 +21,7 @@ cp runtime/__init__.py runtime/xcreen_tools.py runtime/xcreen_gateway.py runtime
 # assembled app bundle. When the installed Xcode provides it, generate the
 # metadata needed for macOS 26+ Spotlight action discovery.
 rm -rf "$APP/Contents/Resources/Metadata.appintents"
+METADATA_TOOL=""
 if METADATA_TOOL="$(xcrun --find appintentsmetadataprocessor 2>/dev/null)"; then
   META_TMP="$(mktemp -d)"
   trap 'rm -rf "$META_TMP"' EXIT
@@ -29,10 +30,14 @@ if METADATA_TOOL="$(xcrun --find appintentsmetadataprocessor 2>/dev/null)"; then
   # native SwiftPM (release/XCreenApp.build). They must include the AppShortcutsProvider.
   find "$PWD/.build" \( -path '*Release*xCreen-p.build*' -o -path '*release*XCreenApp.build*' \) \
     -name '*.swiftconstvalues' -print > "$META_TMP/constvalues"
+  XCODE_VERSION="$(xcodebuild -version | awk '/^Xcode /{print $2}')"
   if [[ ! -s "$META_TMP/constvalues" ]]; then
-    printf 'error: %s exists but swift build emitted no XCreenApp .swiftconstvalues; Spotlight actions would be missing.\n' "$METADATA_TOOL" >&2
-    exit 1
+    # Hard failure locally; CI=true with Xcode < 27 (hosted runners) skips with a warning.
+    python3 scripts/check-appintents-metadata.py --allow-missing-constvalues "$XCODE_VERSION" || exit 1
+    SKIP_METADATA=1
   fi
+fi
+if [[ -n "${METADATA_TOOL:-}" && -z "${SKIP_METADATA:-}" ]]; then
   XCODE_BUILD="$(xcodebuild -version | awk '/Build version/{print $3}')"
   "$METADATA_TOOL" \
     --output "$APP/Contents/Resources" \
@@ -49,7 +54,7 @@ if METADATA_TOOL="$(xcrun --find appintentsmetadataprocessor 2>/dev/null)"; then
     --force
   # Spotlight lists an app's actions from its App Shortcuts; fail if the action or shortcuts are missing.
   python3 scripts/check-appintents-metadata.py "$APP/Contents/Resources/Metadata.appintents"
-else
+elif [[ -z "${METADATA_TOOL:-}" ]]; then
   printf 'warning: appintentsmetadataprocessor not found (Xcode required); the Ask xCreen Spotlight action will not appear.\n' >&2
 fi
 # Ad-hoc signatures change every build, so macOS forgets the Screen Recording grant.
