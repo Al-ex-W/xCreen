@@ -10,8 +10,19 @@ public final class LocalControlServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "xcreen.control.accept")
     private let slots = DispatchSemaphore(value: 8)
     private let handler: @Sendable (LocalControlCommand) async throws -> LocalControlResponse
-    public init(directory: URL = LocalControlServer.defaultDirectory, handler: @escaping @Sendable (LocalControlCommand) async throws -> LocalControlResponse) throws {
-        self.directory = directory; self.handler = handler
+    private let peerAuthorized: @Sendable (Int32) -> Bool
+    /// True only when the connected peer runs as this process's UID.
+    public static func sameUserPeer(_ fd: Int32) -> Bool {
+        var uid: uid_t = 0; var gid: gid_t = 0
+        return getpeereid(fd, &uid, &gid) == 0 && uid == getuid()
+    }
+    public convenience init(directory: URL = LocalControlServer.defaultDirectory, handler: @escaping @Sendable (LocalControlCommand) async throws -> LocalControlResponse) throws {
+        try self.init(directory: directory, peerAuthorized: LocalControlServer.sameUserPeer, handler: handler)
+    }
+    /// `peerAuthorized` runs on the accept queue before a concurrency slot is taken, so
+    /// wrong-UID peers can never starve legitimate same-user clients.
+    init(directory: URL, peerAuthorized: @escaping @Sendable (Int32) -> Bool, handler: @escaping @Sendable (LocalControlCommand) async throws -> LocalControlResponse) throws {
+        self.directory = directory; self.handler = handler; self.peerAuthorized = peerAuthorized
         if mkdir(directory.path, 0o700) != 0 && errno != EEXIST { throw LocalControlError.unavailable("cannot create control directory") }
         var info = stat()
         guard lstat(directory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid(), info.st_mode & 0o777 == 0o700 else { throw LocalControlError.unavailable("unsafe control directory") }
@@ -36,6 +47,7 @@ public final class LocalControlServer: @unchecked Sendable {
                 let client = accept(fd, nil, nil)
                 guard client >= 0 else { return }
                 guard let self else { close(client); return }
+                guard self.peerAuthorized(client) else { close(client); continue }
                 guard self.slots.wait(timeout: .now()) == .success else { close(client); continue }
                 DispatchQueue.global(qos: .utility).async { [self] in defer { self.slots.signal(); close(client) }; self.serve(client) }
             }
@@ -47,8 +59,6 @@ public final class LocalControlServer: @unchecked Sendable {
         if lock >= 0 { flock(lock, LOCK_UN); close(lock); lock = -1 }
     }
     private func serve(_ fd: Int32) {
-        var uid: uid_t = 0; var gid: gid_t = 0
-        guard getpeereid(fd, &uid, &gid) == 0, uid == getuid() else { return }
         var noSignal: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
         var frame = Data(); var byte: UInt8 = 0
