@@ -6,6 +6,28 @@ import unittest
 path = pathlib.Path(__file__).resolve().parents[1] / 'bin/xcreen'
 loader = importlib.machinery.SourceFileLoader('xcreen_cli', str(path))
 
+def _load():
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    cli = importlib.util.module_from_spec(spec)
+    loader.exec_module(cli)
+    return cli
+
+class PeerUIDTests(unittest.TestCase):
+    def test_peer_uid_of_socketpair_is_current_user(self):
+        import os, socket
+        cli = _load()
+        a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        with a, b:
+            self.assertEqual(cli.peer_uid(a), os.getuid())
+
+    def test_peer_uid_falls_back_to_local_peercred_without_libc(self):
+        import os, socket
+        from unittest.mock import patch
+        cli = _load()
+        a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        with a, b, patch.object(cli, '_getpeereid', None):
+            self.assertEqual(cli.peer_uid(a), os.getuid())
+
 class CLITests(unittest.TestCase):
     def test_literal_json_arguments_are_not_global_options(self):
         from unittest.mock import patch
