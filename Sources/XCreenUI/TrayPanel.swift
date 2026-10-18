@@ -3,7 +3,7 @@ import SwiftUI
 import XCreenCore
 
 /// Everything the tray panel reads or invokes. The app's `AppState` is the only runtime
-/// conformer; the dev-only screenshot renderer supplies a synthetic demo model, so the panel
+/// conformer; the dev-only screenshot renderer supplies a fixed sample model, so the panel
 /// can be rendered without starting capture, the gateway or the evidence store.
 @MainActor public protocol TrayPanelModel: ObservableObject {
     var integrity: Bool { get set }
@@ -80,7 +80,7 @@ public struct Panel<Model: TrayPanelModel>: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("xCreen").font(.system(size: 24, weight: .medium))
-                Text("Private evidence, deliberate assistance.")
+                Text("Screen memory for Hermes on macOS")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -94,7 +94,7 @@ public struct Panel<Model: TrayPanelModel>: View {
                 .accessibilityHint("Integrity pauses capture and automatic work.")
             Text(state.integrity
                  ? "On: no screenshots, no OCR, nothing sent automatically."
-                 : "Off: capture requested; automatic safety gates may suspend it without changing this switch.")
+                 : "Off: capturing. Pauses on its own when the Mac locks or an excluded app is open.")
             Text(state.captureStatus).font(.caption).foregroundStyle(.secondary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -109,14 +109,14 @@ public struct Panel<Model: TrayPanelModel>: View {
                     ForEach(state.hermesModels) { route in Text("\(route.provider) · \(route.model)").tag(route.id) }
                 }
 
-                .accessibilityHint("Uses Hermes's provider-aware inventory and changes only the xCreen session.")
-                Text("Your choice becomes the xCreen default and is reapplied on reconnect; Hermes's global default is unchanged. Recommended: Claude Haiku 5.5 (fast and inexpensive for five-minute batches).")
+                .accessibilityHint("Changes the model for xCreen only.")
+                Text("Used only by xCreen. Claude Haiku 5.5 is fast and cheap.")
                     .font(.caption).foregroundStyle(.secondary)
                 Text(state.modelDefaultStatus).font(.caption).foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                TextField("Ask about your recent context", text: $state.query)
+                TextField("Ask about your day", text: $state.query)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { state.submitQuestion() }
                 HStack {
@@ -159,7 +159,7 @@ public struct Panel<Model: TrayPanelModel>: View {
                 EvidenceAppendix(images: state.appendix)
             }
 
-            DisclosureGroup("Durable batches") {
+            DisclosureGroup("Batches") {
                 HStack {
                     Button("Refresh") { state.runControl(["command": "batches"]) }
                     Button("Verify receipts") { state.runControl(["command": "verify"]) }
@@ -167,23 +167,23 @@ public struct Panel<Model: TrayPanelModel>: View {
                 }
                 ScrollView { Text(state.batchMetadata).font(.caption).textSelection(.enabled) }.frame(maxHeight: 100)
                 Button("Retry zero-effect batches") { state.runControl(["command": "retrybatches"]) }
-                Text("Transport completion is not verified processing. A provider failure is retried with backoff only when the host receipt proves zero note effects; batches with effects or unknown effects stay uncertain.").font(.caption).foregroundStyle(.secondary)
+                Text("Failed batches retry automatically when it's safe to.").font(.caption).foregroundStyle(.secondary)
             }
 
-            DisclosureGroup("Local settings", isExpanded: $state.showSettings) {
+            DisclosureGroup("Settings", isExpanded: $state.showSettings) {
                 VStack(alignment: .leading, spacing: 6) {
                     TextField("Python executable (absolute path)", text: $state.hermesPython)
                         .textFieldStyle(.roundedBorder)
                     TextField("Hermes source root (contains tui_gateway/)", text: $state.hermesRoot)
                         .textFieldStyle(.roundedBorder)
-                    TextField("Obsidian vault (optional, enables Daily notes)", text: $state.vaultPath)
+                    TextField("Obsidian vault (optional)", text: $state.vaultPath)
                         .textFieldStyle(.roundedBorder)
                     HStack {
                         Button("Auto-detect") { state.autodetectLocalSetup(overwrite: true) }
                         Button("Save") { state.saveHermesExecutable() }
                     }
                     .buttonStyle(.borderless)
-                    Text("xCreen launches its bundled runtime/xcreen_gateway.py with this Python, which registers the xcreen tools and starts Hermes's raw tui_gateway. Only the xCreen session uses them; no profile or model default is changed. With a vault set, the agent notes what matters in your Obsidian vault.")
+                    Text("xCreen runs Hermes with this Python. Your Hermes profile and defaults stay untouched. Set a vault to get notes in Obsidian.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

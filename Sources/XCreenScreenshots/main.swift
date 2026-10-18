@@ -23,7 +23,7 @@ import XCreenUI
     let submissionMessage = "Hermes response complete."
     let lastQuestion = ""
     let streamedReply = """
-    From about 10:05 to 11:50 you were mostly in Xcode on the demo app's onboarding screen, \
+    From about 10:05 to 11:50 you were mostly in Xcode on the app's onboarding screen, \
     fixing the layout of the permissions step. Around 11:20 you read the SwiftUI Layout docs in \
     Safari, and your last edit before lunch was OnboardingView.swift. One screenshot is attached.
     """
@@ -130,12 +130,11 @@ import XCreenUI
         _ = draw("xCreen", .systemFont(ofSize: 76, weight: .bold), .white, at: CGPoint(x: left + size.width + 18, y: y + 24), width: column, kern: -1.5)
     }
     y -= 96
-    y -= draw("Open-source screen memory\nfor macOS", .systemFont(ofSize: 40, weight: .semibold), NSColor(white: 0.94, alpha: 1), at: CGPoint(x: left, y: y), width: column)
+    y -= draw("Screen memory\nfor Hermes on macOS", .systemFont(ofSize: 40, weight: .semibold), NSColor(white: 0.94, alpha: 1), at: CGPoint(x: left, y: y), width: column)
     y -= 20
-    y -= draw("Local OCR + screenshots \u{2192} insights\nin your Obsidian daily notes", .systemFont(ofSize: 26, weight: .regular), NSColor(white: 0.64, alpha: 1), at: CGPoint(x: left, y: y), width: column)
+    y -= draw("What you see becomes short notes\nin your Obsidian daily notes", .systemFont(ofSize: 26, weight: .regular), NSColor(white: 0.64, alpha: 1), at: CGPoint(x: left, y: y), width: column)
     y -= 34
     _ = draw("github.com/Al-ex-W/xCreen", .monospacedSystemFont(ofSize: 19, weight: .regular), NSColor(red: 0.45, green: 0.68, blue: 1, alpha: 0.95), at: CGPoint(x: left, y: y), width: column)
-    _ = draw("UI rendered from synthetic demo data", .systemFont(ofSize: 13, weight: .regular), NSColor(white: 0.50, alpha: 1), at: CGPoint(x: trayRect.minX, y: trayRect.minY - 12), width: trayWidth)
 
     context.flushGraphics()
     guard let png = rep.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }

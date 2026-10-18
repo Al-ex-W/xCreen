@@ -547,7 +547,7 @@ extension AppState: TrayPanelModel {}
     /// Cheap menu bar swap while a question is generating (static: menu bar symbols don't animate).
     func setGenerating(_ generating: Bool) {
         guard item != nil else { return }
-        item.button?.image = NSImage(systemSymbolName: generating ? "arrow.counterclockwise.circle" : "display", accessibilityDescription: generating ? "xCreen — Hermes is thinking" : "xCreen")
+        item.button?.image = NSImage(systemSymbolName: generating ? "arrow.counterclockwise.circle" : "display", accessibilityDescription: generating ? "xCreen, thinking" : "xCreen")
     }
 
     @objc func toggle() {

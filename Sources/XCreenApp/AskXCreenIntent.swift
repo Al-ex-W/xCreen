@@ -7,14 +7,14 @@ import XCreenCore
 struct AskXCreenIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask xCreen"
     static let description = IntentDescription(
-        "Ask xCreen about what you’ve been doing on your Mac. Opens the xCreen panel with your question filled in, ready to send.",
+        "Ask about what you’ve done on your Mac. Opens xCreen with your question filled in.",
         searchKeywords: ["screen", "memory", "recall", "history", "Hermes"]
     )
     static let openAppWhenRun = true
 
     @Parameter(
         title: "Question",
-        description: "What you want to ask about your recent screen activity.",
+        description: "What you want to know.",
         inputOptions: String.IntentInputOptions(capitalizationType: .sentences, multiline: false, autocorrect: true),
         requestValueDialog: IntentDialog("What do you want to ask xCreen?")
     )
@@ -38,7 +38,7 @@ struct AskXCreenIntent: AppIntent {
 @available(macOS 26.0, *)
 struct OpenXCreenIntent: AppIntent {
     static let title: LocalizedStringResource = "Open xCreen"
-    static let description = IntentDescription("Show the xCreen panel from the menu bar.")
+    static let description = IntentDescription("Open the xCreen panel.")
     static let openAppWhenRun = true
 
     @MainActor
@@ -55,12 +55,12 @@ struct OpenXCreenIntent: AppIntent {
 struct SearchXCreenIntent: ShowInAppSearchResultsIntent {
     static let title: LocalizedStringResource = "Ask xCreen"
     static let description = IntentDescription(
-        "Opens the xCreen panel with your Spotlight text filled in as a question, ready to send."
+        "Opens xCreen with your text filled in as a question."
     )
     static let searchScopes: [StringSearchScope] = [.general]
     static let openAppWhenRun = true
 
-    @Parameter(title: "Criteria", description: "The text to ask xCreen about.")
+    @Parameter(title: "Criteria", description: "What to ask xCreen.")
     var criteria: StringSearchCriteria
 
     @MainActor
