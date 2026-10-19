@@ -117,6 +117,22 @@ final class HermesGatewayRuntimeTests: XCTestCase {
         await gateway.stop()
     }
 
+    func testBatchAttachmentFilenameMatchesCompressedJPEGBytes() async throws {
+        let script = try makeGatewayScript()
+        defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent().deletingLastPathComponent()) }
+        let image = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("xcreen-test-image-\(UUID().uuidString).jpg")
+        try Data([0xff, 0xd8, 0xff, 0xe0]).write(to: image)
+        defer { try? FileManager.default.removeItem(at: image) }
+
+        let gateway = HermesGateway(defaultDeadline: TestTiming.subprocessDeadline)
+        try await gateway.start(launch: .python(executable: "/usr/bin/python3", gatewayEntry: script.path))
+        let session = try await gateway.open(storedSessionID: "stored-xcreen")
+        try await gateway.submitBatch(sessionID: session.runtimeID, text: "manifest", images: [
+            HermesEvidenceAttachment(id: "img-1", timestamp: Date(timeIntervalSince1970: 1), fileURL: image)
+        ], transmissionAllowed: { true })
+        await gateway.stop()
+    }
+
     private func makeGatewayScript(resumeResult: String = #"{"session_id":"runtime-xcreen","stored_session_id":"stored-xcreen"}"#, terminationDelay: Double = 0) throws -> URL {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("xcreen-fake-gateway-\(UUID().uuidString)", isDirectory: true)
         let package = root.appendingPathComponent("tui_gateway", isDirectory: true)
@@ -155,7 +171,14 @@ for line in sys.stdin:
     elif method == "session.history":
         assert request['params']['session_id'] == 'runtime-xcreen'
         result = {"count":1,"messages":[{"role":"assistant","content":"synthetic durable reply"}]}
-    elif method == "image.attach_bytes": result = {"attached":True}
+    elif method == "image.attach_bytes":
+        # The filename must name the real format: Hermes infers the media type from it.
+        import base64
+        head = base64.b64decode(request['params']['content_base64'])[:3]
+        expected = ".jpg" if head == b"\xff\xd8\xff" else ".png"
+        if not request['params']['filename'].endswith(expected):
+            print(json.dumps({"jsonrpc":"2.0","id":rid,"error":{"code":4000,"message":"filename does not match image bytes"}}), flush=True); continue
+        result = {"attached":True}
     elif method == "prompt.submit": result = {"status":"streaming"}
     elif method == "client.capabilities": result = {"server_requests":[],"declines_not_shown":True}
     else: result = {}

@@ -228,10 +228,13 @@ public actor HermesGateway: HermesGatewayTransport {
         for image in images {
             guard await transmissionAllowed(), image.id.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil, image.fileURL.isFileURL else { throw HermesGatewayError.cancelled }
             let bytes = try Data(contentsOf: image.fileURL, options: [.mappedIfSafe]); guard !bytes.isEmpty, bytes.count <= 8 * 1024 * 1024, await transmissionAllowed() else { throw HermesGatewayError.cancelled }
-            _ = try await request("image.attach_bytes", ["session_id": sessionID, "content_base64": bytes.base64EncodedString(), "filename": "\(image.id).png"])
+            _ = try await request("image.attach_bytes", ["session_id": sessionID, "content_base64": bytes.base64EncodedString(), "filename": Self.attachmentFilename(id: image.id, bytes: bytes)])
         }
         guard await transmissionAllowed() else { throw HermesGatewayError.cancelled }; _ = try await submit(sessionID: sessionID, text: text)
     }
+    /// Hermes infers the media type from the filename, so it follows the bytes:
+    /// digested evidence may have been recompressed to JPEG.
+    static func attachmentFilename(id: String, bytes: Data) -> String { "\(id).\(bytes.starts(with: [0xff, 0xd8, 0xff]) ? "jpg" : "png")" }
     public func cancel(sessionID: String) async throws -> Data { try await request("session.interrupt", ["session_id": sessionID]) }
     public func stop() { process?.terminate(); disconnect() }
 
