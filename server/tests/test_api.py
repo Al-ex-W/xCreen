@@ -116,6 +116,9 @@ class UploadTests(APITestCase):
         self.assertEqual(self.call("PUT", f"/v1/images/image-1?timestamp={moment}", raw=png())[0], 200)
         status, data = self.call("GET", "/v1/images/image-1")
         self.assertEqual((status, data), (200, png()))
+        request = urllib.request.Request(self.base + "/v1/images/image-1", headers={"Authorization": f"Bearer {TOKEN}"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            self.assertTrue(response.headers["X-Xcreen-Captured-At"].startswith(now().strftime("%Y-%m-%d")[:4]))
         self.assertEqual(self.call("GET", "/v1/images/image-2")[0], 404)
         self.assertEqual(self.call("GET", "/v1/nothing")[0], 404)
         self.assertEqual(self.call("GET", "/v1/images/..%2Fetc")[0], 404)

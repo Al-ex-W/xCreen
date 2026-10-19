@@ -10,12 +10,11 @@ BIN="$(swift build ${SWIFT_ARGS[@]+"${SWIFT_ARGS[@]}"} -c release -debug-info-fo
 APP="dist/xCreen.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 rm -rf "$APP/Contents/Resources/bridge"
+# Since 2.0 the Hermes runtime ships with xcreen-server, not inside the app.
 rm -rf "$APP/Contents/Resources/runtime"
 cp "$BIN/xCreen" "$APP/Contents/MacOS/xCreen"
 cp resources/Info.plist "$APP/Contents/Info.plist"
 cp LICENSE NOTICE "$APP/Contents/Resources/"
-mkdir -p "$APP/Contents/Resources/runtime"
-cp runtime/__init__.py runtime/xcreen_tools.py runtime/xcreen_gateway.py runtime/xcreen_receipts.py runtime/xcreen_rpc.py runtime/migrate_receipts.py "$APP/Contents/Resources/runtime/"
 
 # SwiftPM does not run Xcode's App Intents metadata extractor for a manually
 # assembled app bundle. When the installed Xcode provides it, generate the

@@ -33,13 +33,13 @@ def cmd_init(args) -> int:
     for key in ("hermes_python", "hermes_root", "vault"):
         if imported.get(key) and not getattr(config, key):
             setattr(config, key, imported[key])
-    if not (config.hermes_python and config.hermes_root):
+    if not (config.hermes_python and config.hermes_root) and not args.no_detect:
         found = detect_hermes()
         if found:
             config.hermes_python, config.hermes_root = found
     if args.vault is not None:
         config.vault = args.vault
-    elif not config.vault:
+    elif not config.vault and not args.no_detect:
         config.vault = detect_vault() or ""
     if args.bind:
         config.bind = args.bind
@@ -162,6 +162,7 @@ def main(argv=None) -> int:
     init.add_argument("--runtime-dir")
     init.add_argument("--timezone")
     init.add_argument("--import-mac-app", action="store_true", help="import settings and session from the 1.x app (macOS)")
+    init.add_argument("--no-detect", action="store_true", help="don't look for Hermes or an Obsidian vault")
     init.set_defaults(func=cmd_init)
     serve = sub.add_parser("serve", help="run the server")
     serve.add_argument("-v", "--verbose", action="store_true")

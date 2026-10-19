@@ -84,8 +84,10 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── plumbing ─────────────────────────────────────────────────────────────
 
-    def _send(self, status: int, body: bytes, content_type: str = "application/json") -> None:
+    def _send(self, status: int, body: bytes, content_type: str = "application/json", headers: dict | None = None) -> None:
         self.send_response(status)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         if status in (400, 413):
             # The request body may be unread; never reuse this connection.
             self.close_connection = True
@@ -171,11 +173,12 @@ class Handler(BaseHTTPRequestHandler):
             data = self._body(MAX_IMAGE)
             return call(_sync(s.ingest_image, match.group(1), parse_time(query.get("timestamp")), data))
         if match and method == "GET":
-            image = call(_sync(s.image_path, match.group(1)))
+            image = call(_sync(s.image, match.group(1)))
             if image is None:
                 raise HTTPError(404, "not_found", "image unavailable or expired")
-            data = image.read_bytes()
-            self._send(200, data, "image/jpeg" if data.startswith(b"\xff\xd8\xff") else "image/png")
+            data = image.path.read_bytes()
+            self._send(200, data, "image/jpeg" if data.startswith(b"\xff\xd8\xff") else "image/png",
+                       {"X-Xcreen-Captured-At": image.timestamp.isoformat()})
             return None
         if method == "POST" and path == "/v1/capture":
             body = self._payload()
