@@ -83,6 +83,10 @@ if [[ "$(uname)" == "Darwin" ]]; then
   fi
 fi
 
+if [[ "$(uname)" != "Darwin" ]] && ! "$LAUNCHER" doctor 2>/dev/null | grep -q "compression: [mp]\|compression: libjpeg"; then
+  echo "note: no JPEG encoder found; digested screenshots stay PNG. On Debian/Ubuntu: sudo apt install netpbm libjpeg-turbo-progs" >&2
+fi
+
 if [[ $START -eq 1 ]]; then
   if [[ "$(uname)" == "Darwin" ]]; then
     PLIST="$HOME/Library/LaunchAgents/dev.xcreen.server.plist"
