@@ -106,19 +106,6 @@ public struct AskHandoffInbox {
     }
 }
 
-public struct ConsentScope: Equatable {
-    private let question: String
-    private let modelID: String
-    private let bridge: BridgeSettings
-    public init(question: String, modelID: String, bridge: BridgeSettings) {
-        self.question = question
-        self.modelID = modelID
-        self.bridge = bridge
-    }
-    public func allows(question: String, modelID: String, bridge: BridgeSettings) -> Bool {
-        self == ConsentScope(question: question, modelID: modelID, bridge: bridge)
-    }
-}
 public struct OCRDedup {
     private let capacity: Int
     private var hashes: [Data] = []

@@ -9,7 +9,7 @@ public enum LocalControlProtocol {
 }
 
 public enum LocalControlCommandName: String, Codable, Sendable {
-    case status, integrity, visibility, connect, disconnect, reconnect, models, model, modeldefault, retrybatches, settings, autodetect, ask, cancel, history, batches, verify, images, panel, quit
+    case status, integrity, visibility, connect, disconnect, reconnect, models, model, modeldefault, retrybatches, settings, autodetect, ask, cancel, history, batches, verify, images, panel, quit, server, flush
 }
 
 public struct LocalControlCommand: Codable, Sendable {
@@ -20,8 +20,10 @@ public struct LocalControlCommand: Codable, Sendable {
     public let model: String?
     public let question: String?
     public let waitMilliseconds: Int?
+    /// Only for `server`: the bearer token, stored in the Keychain and never echoed back.
+    public let token: String?
 
-    enum CodingKeys: String, CodingKey { case id, command, value, provider, model, question, waitMilliseconds = "wait_ms" }
+    enum CodingKeys: String, CodingKey { case id, command, value, provider, model, question, waitMilliseconds = "wait_ms", token }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id)
@@ -31,10 +33,11 @@ public struct LocalControlCommand: Codable, Sendable {
         model = try c.decodeIfPresent(String.self, forKey: .model)
         question = try c.decodeIfPresent(String.self, forKey: .question)
         waitMilliseconds = try c.decodeIfPresent(Int.self, forKey: .waitMilliseconds)
+        token = try c.decodeIfPresent(String.self, forKey: .token)
     }
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(id, forKey: .id); try c.encode(name, forKey: .command); try c.encodeIfPresent(value, forKey: .value); try c.encodeIfPresent(provider, forKey: .provider); try c.encodeIfPresent(model, forKey: .model); try c.encodeIfPresent(question, forKey: .question); try c.encodeIfPresent(waitMilliseconds, forKey: .waitMilliseconds)
+        try c.encodeIfPresent(id, forKey: .id); try c.encode(name, forKey: .command); try c.encodeIfPresent(value, forKey: .value); try c.encodeIfPresent(provider, forKey: .provider); try c.encodeIfPresent(model, forKey: .model); try c.encodeIfPresent(question, forKey: .question); try c.encodeIfPresent(waitMilliseconds, forKey: .waitMilliseconds); try c.encodeIfPresent(token, forKey: .token)
     }
 
     public static func decode(_ data: Data) throws -> LocalControlCommand {
@@ -44,7 +47,8 @@ public struct LocalControlCommand: Codable, Sendable {
         guard command.value?.utf8.count ?? 0 <= 4096,
               command.provider?.utf8.count ?? 0 <= 256,
               command.model?.utf8.count ?? 0 <= 512,
-              command.question?.utf8.count ?? 0 <= 32_000 else { throw LocalControlError.invalidRequest("field too large") }
+              command.question?.utf8.count ?? 0 <= 32_000,
+              command.token?.utf8.count ?? 0 <= 512 else { throw LocalControlError.invalidRequest("field too large") }
         if command.name == .ask, command.question?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false { throw LocalControlError.invalidRequest("ask needs question") }
         if let wait = command.waitMilliseconds, !(0...LocalControlProtocol.maximumWaitMilliseconds).contains(wait) { throw LocalControlError.invalidRequest("invalid wait") }
         return command
@@ -54,6 +58,14 @@ public struct LocalControlCommand: Codable, Sendable {
 public struct LocalControlSettings: Codable, Equatable, Sendable {
     public var python = ""; public var root = ""; public var vault = ""
     public init(python: String = "", root: String = "", vault: String = "") { self.python = python; self.root = root; self.vault = vault }
+}
+
+public struct LocalControlServerInfo: Codable, Equatable, Sendable {
+    public var url: String; public var reachable: Bool; public var version: String?; public var error: String
+    public var pendingImages: Int; public var pendingOCR: Int; public var batches: [String: Int]
+    public init(url: String, reachable: Bool, version: String?, error: String, pendingImages: Int, pendingOCR: Int, batches: [String: Int]) {
+        self.url = url; self.reachable = reachable; self.version = version; self.error = error; self.pendingImages = pendingImages; self.pendingOCR = pendingOCR; self.batches = batches
+    }
 }
 
 public struct LocalControlModel: Codable, Equatable, Sendable { public let provider: String; public let model: String; public init(provider: String, model: String) { self.provider = provider; self.model = model } }
@@ -68,6 +80,8 @@ public struct LocalControlSnapshot: Codable, Equatable, Sendable {
     public var defaultModelApplied: Bool = false
     public var defaultModelStatus: String = ""
     public var nextBatchRetry: Date? = nil
+    /// Server connection (protocol v1). `serverReachable` means the last request succeeded.
+    public var server: LocalControlServerInfo? = nil
     public let app: String; public let connected: Bool; public let integrity: Bool; public let capture: String
     /// This is returned only to an explicit foreground CLI caller, never written to logs.
     public let message: String; public let models: [LocalControlModel]; public let currentModel: LocalControlModel?; public let settings: LocalControlSettings; public let images: [LocalControlImage]

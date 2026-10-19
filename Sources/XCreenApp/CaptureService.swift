@@ -30,7 +30,8 @@ final class CaptureService {
     private let store: EvidenceStore
     private let status: (String) -> Void
     private let safetyChanged: (Bool) -> Void
-    private let batchReady: (CaptureBatch) -> Void
+    /// Called after every saved OCR snapshot or screenshot so the uploader sends it promptly.
+    private let captured: () -> Void
     private var loop: Task<Void, Never>?
     private var maintenance: Task<Void, Never>?
     private let persistence = CapturePersistenceEpoch()
@@ -76,8 +77,8 @@ final class CaptureService {
     private var lastSavedOCR: OCREvidence?
     private let log = ActivityLog.shared
 
-    init(store: EvidenceStore, status: @escaping (String) -> Void, safetyChanged: @escaping (Bool) -> Void, batchReady: @escaping (CaptureBatch) -> Void) {
-        self.store = store; self.status = status; self.safetyChanged = safetyChanged; self.batchReady = batchReady
+    init(store: EvidenceStore, status: @escaping (String) -> Void, safetyChanged: @escaping (Bool) -> Void, captured: @escaping () -> Void) {
+        self.store = store; self.status = status; self.safetyChanged = safetyChanged; self.captured = captured
         safetyChanged(false)
         installLifecycleObservers()
         recordStatus("paused", "Integrity mode · startup")
@@ -87,14 +88,9 @@ final class CaptureService {
             catch { self.storageBlocked = true; self.pause(reason: "Capture blocked · evidence checkpoint is unsafe") }
         }
         // Retention runs even while Integrity mode pauses capture.
-        // Digested images are recompressed here too; it needs mozjpeg (Homebrew).
-        let compactor = ImageCompactor(store: store, encoder: MozJPEGEncoder.locate())
-        maintenance = Task { [store, log] in
-            if await !compactor.isAvailable { log.write(.capture, "mozjpeg not installed; digested images stay PNG (brew install mozjpeg)") }
+        maintenance = Task { [store] in
             while !Task.isCancelled {
                 try? await store.cleanup()
-                let compressed = await compactor.run()
-                if compressed > 0 { log.write(.capture, "compressed \(compressed) digested images to JPEG") }
                 try? await Task.sleep(for: .seconds(60))
             }
         }
@@ -188,6 +184,7 @@ final class CaptureService {
                 guard accepts(token, target) else { return }
                 lastSavedOCR = evidence; checkpoint.ocr.append(evidence)
                 log.write(.capture, "ocr saved id=\(evidence.id) app=\(target.bundleID) chars=\(text.count)")
+                captured()
             } else if !text.isEmpty {
                 log.write(.capture, "ocr skipped (>=90% same as last) app=\(target.bundleID)")
             }
@@ -197,15 +194,16 @@ final class CaptureService {
                 guard accepts(token, target) else { return }
                 checkpoint.images.append(saved)
                 log.write(.capture, "image saved id=\(saved.id) \(checkpoint.images.count)/30 active=\(Int(checkpoint.clock.activeSeconds))s")
+                captured()
             }
             if checkpoint.startedAt == nil { checkpoint.startedAt = now }
             if checkpoint.clock.isComplete && checkpoint.images.count == 30 {
-                let batch = CaptureBatch(id: "batch-\(UUID().uuidString.lowercased())", images: checkpoint.images, startedAt: checkpoint.startedAt ?? now, completedAt: now, ocr: checkpoint.ocr)
-                try await store.finalizeBatch(batch, authorization: authorization)
+                // The server forms the batch from the uploaded images; the client starts a new window.
+                let images = checkpoint.images.count, texts = checkpoint.ocr.count
+                try await store.closeWindow(authorization: authorization)
                 guard accepts(token, target) else { return }
                 persistence.complete(authorization) {
-                    log.write(.batch, "batch ready id=\(batch.id) images=\(batch.images.count) ocr=\(batch.ocr.count)")
-                    batchReady(batch)
+                    log.write(.batch, "capture window complete images=\(images) ocr=\(texts)")
                 }
             } else { try await store.saveCheckpoint(checkpoint, authorization: authorization) }
         } catch CaptureAuthorization.Revoked.invalidated { return }

@@ -34,7 +34,10 @@ import XCreenUI
     @Published var hermesPython = ""
     @Published var hermesRoot = ""
     @Published var vaultPath = ""
-    let status = "Hermes connected · xCreen session"
+    @Published var serverURL = "http://100.64.0.10:8765"
+    @Published var serverToken = ""
+    let queueStatus = "Outbox empty."
+    let status = "Server 2.0.0 · Hermes connected · xCreen session"
 
     init() {
         var parts = DateComponents(); parts.year = 2026; parts.month = 1; parts.day = 1; parts.hour = 11; parts.minute = 42; parts.second = 10
@@ -48,6 +51,7 @@ import XCreenUI
     func switchHermesModel(_ routeID: String) {}
     func autodetectLocalSetup(overwrite: Bool) {}
     func saveHermesExecutable() {}
+    func saveServerSettings() {}
 }
 
 @MainActor func render(to output: URL, scale: CGFloat) throws {
