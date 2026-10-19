@@ -207,6 +207,51 @@ public actor EvidenceStore {
         return result
     }
 
+    /// Digested images still stored losslessly. Only a verified completed digest
+    /// releases an image: pending, uncertain and checkpoint images keep full quality.
+    public func compressibleImages(limit: Int) -> [EvidenceImage] {
+        let digested = Set(index.batches.filter { $0.status == "completed" }.flatMap { $0.batch.images.map(\.id) })
+        let now = Date()
+        return index.images.filter { item in
+            digested.contains(item.id) && item.fileURL.pathExtension.lowercased() == "png" && !Self.expired(item.timestamp, now: now)
+                && (try? Self.confined(item.fileURL, in: imagesDirectory)) == true && Self.regularFileExists(item.fileURL)
+        }.prefix(max(0, min(limit, 1_000))).map { $0 }
+    }
+
+    /// Replaces a digested PNG with its JPEG. Order is new file, index, then original,
+    /// so a crash leaves the index pointing at a complete file either way. Returns nil
+    /// when the image is no longer an eligible, unchanged PNG.
+    public func replaceImage(id: String, expecting original: URL, with data: Data) throws -> EvidenceImage? {
+        guard Self.validID(id), data.count > 3, data.count <= 30_000_000, data.starts(with: [0xff, 0xd8, 0xff]) else { throw EvidenceStoreError.invalidInput }
+        guard let i = index.images.firstIndex(where: { $0.id == id }), index.images[i].fileURL == original,
+              original.pathExtension.lowercased() == "png", !Self.expired(index.images[i].timestamp, now: Date()),
+              index.batches.contains(where: { $0.status == "completed" && $0.batch.images.contains { $0.id == id } }),
+              try Self.confined(original, in: imagesDirectory), Self.regularFileExists(original) else { return nil }
+        let replacement = original.deletingPathExtension().appendingPathExtension("jpg")
+        guard try Self.confined(replacement, in: imagesDirectory) else { throw EvidenceStoreError.unsafePath }
+        let image = EvidenceImage(id: id, timestamp: index.images[i].timestamp, fileURL: replacement)
+        try Self.atomicWrite(data, to: replacement)
+        let old = index
+        index.images[i] = image
+        for b in index.batches.indices where index.batches[b].batch.images.contains(where: { $0.id == id }) {
+            let batch = index.batches[b].batch
+            index.batches[b].batch = CaptureBatch(id: batch.id, images: batch.images.map { $0.id == id ? image : $0 }, startedAt: batch.startedAt, completedAt: batch.completedAt, ocr: batch.ocr)
+        }
+        do { try persist() } catch { index = old; try? Self.removeIfPresent(replacement); throw error }
+        try? Self.removeIfPresent(original) // a leftover is removed by removeSupersededOriginals or TTL
+        return image
+    }
+
+    /// Removes PNG originals left behind by a crash after their JPEG was indexed.
+    public func removeSupersededOriginals() throws {
+        let referenced = Set(index.images.map(\.fileURL.standardizedFileURL.path))
+        for image in index.images where image.fileURL.pathExtension.lowercased() == "jpg" {
+            let original = image.fileURL.deletingPathExtension().appendingPathExtension("png")
+            guard !referenced.contains(original.standardizedFileURL.path), try Self.confined(original, in: imagesDirectory), Self.regularFileExists(original) else { continue }
+            try Self.removeIfPresent(original)
+        }
+    }
+
     /// Due pending work only. A provider rate limit throttles the whole automatic
     /// pipeline (same account), a per-batch backoff only that batch.
     public func pendingBatches(now: Date = Date()) throws -> [CaptureBatch] {
