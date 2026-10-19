@@ -433,6 +433,5 @@ class XCreenService:
             raise InvalidRequest("no Hermes launcher or Obsidian vault found on the server")
         return await self.configure(changes)
 
-    def image_path(self, ident: str) -> Path | None:
-        image = self.store.image(ident)
-        return image.path if image else None
+    def image(self, ident: str):
+        return self.store.image(ident)
