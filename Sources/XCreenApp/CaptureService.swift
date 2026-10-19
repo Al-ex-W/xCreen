@@ -87,9 +87,14 @@ final class CaptureService {
             catch { self.storageBlocked = true; self.pause(reason: "Capture blocked · evidence checkpoint is unsafe") }
         }
         // Retention runs even while Integrity mode pauses capture.
-        maintenance = Task { [store] in
+        // Digested images are recompressed here too; it needs mozjpeg (Homebrew).
+        let compactor = ImageCompactor(store: store, encoder: MozJPEGEncoder.locate())
+        maintenance = Task { [store, log] in
+            if await !compactor.isAvailable { log.write(.capture, "mozjpeg not installed; digested images stay PNG (brew install mozjpeg)") }
             while !Task.isCancelled {
                 try? await store.cleanup()
+                let compressed = await compactor.run()
+                if compressed > 0 { log.write(.capture, "compressed \(compressed) digested images to JPEG") }
                 try? await Task.sleep(for: .seconds(60))
             }
         }
