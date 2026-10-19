@@ -98,8 +98,50 @@ class PillowEncoder(ImageEncoder):
             raise EncodingFailed(str(exc)) from exc
 
 
+class NetpbmCjpegEncoder(ImageEncoder):
+    """Packaged on Debian/Ubuntu (``netpbm`` + ``libjpeg-turbo-progs``): ``pngtopnm`` decodes,
+    libjpeg-turbo's ``cjpeg`` encodes at the quality that matched mozjpeg q30."""
+    name = "libjpeg-turbo"
+    quality = 20
+    candidates = (("/usr/bin/pngtopnm", "/usr/bin/cjpeg"), ("/usr/local/bin/pngtopnm", "/usr/local/bin/cjpeg"))
+
+    def __init__(self, decoder: str, encoder: str):
+        self.decoder, self.encoder = decoder, encoder
+
+    @classmethod
+    def locate(cls, candidates=None) -> "NetpbmCjpegEncoder | None":
+        for decoder, encoder in candidates or cls.candidates:
+            if all(os.path.isfile(p) and os.access(p, os.X_OK) for p in (decoder, encoder)):
+                return cls(decoder, encoder)
+        return None
+
+    async def encode(self, path: Path) -> bytes:
+        read, write = os.pipe()
+        try:
+            decode = await asyncio.create_subprocess_exec(self.decoder, str(path), stdin=asyncio.subprocess.DEVNULL, stdout=write,
+                                                          stderr=asyncio.subprocess.DEVNULL, env={})
+            encode = await asyncio.create_subprocess_exec(self.encoder, "-quality", str(self.quality), "-optimize", stdin=read,
+                                                          stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, env={})
+        finally:
+            os.close(read)
+            os.close(write)
+        try:
+            data, _ = await asyncio.wait_for(encode.communicate(), timeout=60)
+            await asyncio.wait_for(decode.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            for process in (decode, encode):
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
+            raise EncodingFailed("pngtopnm | cjpeg timed out")
+        if decode.returncode != 0 or encode.returncode != 0 or len(data) <= 3 or len(data) > MAX_IMAGE_BYTES or not data.startswith(JPEG_MAGIC):
+            raise EncodingFailed("pngtopnm | cjpeg failed")
+        return data
+
+
 def default_encoder() -> ImageEncoder | None:
-    return MozJPEGEncoder.locate() or PillowEncoder.locate()
+    """Best available, in order of measured size at equal OCR retention."""
+    return MozJPEGEncoder.locate() or PillowEncoder.locate() or NetpbmCjpegEncoder.locate()
 
 
 class ImageCompactor:
@@ -141,7 +183,7 @@ class ImageCompactor:
 
 def describe(encoder: ImageEncoder | None) -> str:
     if encoder is None:
-        return "none (digested screenshots stay PNG; install mozjpeg or Pillow)"
+        return "none (digested screenshots stay PNG; install mozjpeg, Pillow, or netpbm + libjpeg-turbo-progs)"
     if isinstance(encoder, MozJPEGEncoder):
         return f"mozjpeg ({encoder.executable}, quality {encoder.quality})"
     return f"{encoder.name} (quality {encoder.quality})"
