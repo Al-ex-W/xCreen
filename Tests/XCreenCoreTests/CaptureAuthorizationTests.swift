@@ -11,8 +11,7 @@ final class CaptureAuthorizationTests: XCTestCase {
         let epoch = CapturePersistenceEpoch()
         let old = epoch.authorization, now = Date()
         epoch.checkpoint.startedAt = now
-        let batch = CaptureBatch(id: "batch-delayed", images: [], startedAt: now, completedAt: now, ocr: [])
-        try await store.finalizeBatch(batch, authorization: old)
+        try await store.closeWindow(authorization: old)
         // The store finished, but the caller has not yet handled the return.
         epoch.advance()
         XCTAssertNil(epoch.checkpoint.startedAt, "consume the receipt before pause snapshots")
@@ -22,7 +21,7 @@ final class CaptureAuthorizationTests: XCTestCase {
         XCTAssertFalse(delivered)
         XCTAssertEqual(epoch.checkpoint.startedAt, now.addingTimeInterval(1))
         let current = epoch.authorization
-        try await store.finalizeBatch(batch, authorization: current)
+        try await store.closeWindow(authorization: current)
         XCTAssertTrue(epoch.complete(current) { delivered = true })
         XCTAssertTrue(delivered)
         XCTAssertNil(epoch.checkpoint.startedAt)
@@ -35,7 +34,6 @@ final class CaptureAuthorizationTests: XCTestCase {
         let old = CaptureAuthorization(), paused = CaptureAuthorization(), resumed = CaptureAuthorization()
         let now = Date()
         let replacement = CaptureCheckpoint(startedAt: now)
-        let batch = CaptureBatch(id: "batch-old", images: [], startedAt: now, completedAt: now, ocr: [])
         // Suspend the store, revoke the old iteration and the paused snapshot,
         // then let a resumed epoch write before both stale operations arrive.
         let entered = expectation(description: "store occupied"), release = DispatchSemaphore(value: 0)
@@ -44,14 +42,12 @@ final class CaptureAuthorizationTests: XCTestCase {
         old.invalidate(); paused.invalidate()
         release.signal(); await blocker.value
         try await store.saveCheckpoint(replacement, authorization: resumed)
-        do { try await store.finalizeBatch(batch, authorization: old); XCTFail("stale batch finalized") }
+        do { try await store.closeWindow(authorization: old); XCTFail("stale window closed") }
         catch CaptureAuthorization.Revoked.invalidated { }
         do { try await store.saveCheckpoint(CaptureCheckpoint(), authorization: paused); XCTFail("stale pause overwrote replacement") }
         catch CaptureAuthorization.Revoked.invalidated { }
         let checkpoint = try await store.loadCheckpoint()
         XCTAssertEqual(checkpoint.startedAt, now)
-        let pending = try await store.pendingBatches()
-        XCTAssertTrue(pending.isEmpty)
         XCTAssertFalse(old.didFinalize)
     }
 
@@ -61,8 +57,7 @@ final class CaptureAuthorizationTests: XCTestCase {
         let store = try EvidenceStore(root: root)
         let token = CaptureAuthorization(), now = Date()
         try await store.saveCheckpoint(CaptureCheckpoint(startedAt: now), authorization: token)
-        let batch = CaptureBatch(id: "batch-complete", images: [], startedAt: now, completedAt: now, ocr: [])
-        try await store.finalizeBatch(batch, authorization: token)
+        try await store.closeWindow(authorization: token)
         do {
             try await store.saveCheckpoint(CaptureCheckpoint(startedAt: now), authorization: token)
             XCTFail("finalized epoch resurrected its checkpoint")
@@ -72,8 +67,6 @@ final class CaptureAuthorizationTests: XCTestCase {
         XCTAssertFalse(token.isValid, "the old caller must not deliver a completion")
         let checkpoint = try await store.loadCheckpoint()
         XCTAssertNil(checkpoint.startedAt)
-        let pending = try await store.pendingBatches()
-        XCTAssertEqual(pending.map(\.id), [batch.id])
     }
 
     func testQueuedInvalidatedWritesLeaveNoEvidenceOrCheckpoint() async throws {
@@ -106,7 +99,8 @@ final class CaptureAuthorizationTests: XCTestCase {
         catch CaptureAuthorization.Revoked.invalidated { }
         let latest = await store.latestOCR()
         XCTAssertNil(latest)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("ocr").path), [])
+        let pending = await store.pendingUploads()
+        XCTAssertTrue(pending.isEmpty)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("images").path), [])
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("capture-checkpoint.json").path))
     }

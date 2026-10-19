@@ -28,6 +28,12 @@ import XCreenCore
     var hermesRoot: String { get set }
     var vaultPath: String { get set }
     var status: String { get }
+    /// xCreen server (docs/protocol.md). The token field is write-only: it is stored in the Keychain.
+    var serverURL: String { get set }
+    var serverToken: String { get set }
+    /// Captured items still waiting to upload.
+    var queueStatus: String { get }
+    func saveServerSettings()
     func submitQuestion()
     func runControl(_ fields: [String: String])
     func switchHermesModel(_ routeID: String)
@@ -80,7 +86,7 @@ public struct Panel<Model: TrayPanelModel>: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("xCreen").font(.system(size: 24, weight: .medium))
-                Text("Screen memory for Hermes on macOS")
+                Text("Screen memory for Hermes")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -125,7 +131,7 @@ public struct Panel<Model: TrayPanelModel>: View {
                         .disabled(!state.canAsk)
                     Button("Cancel") { state.runControl(["command": "cancel"]) }
                     Spacer()
-                    Text(state.connected ? "Persistent xCreen session" : "No request sent")
+                    Text(state.connected ? "Persistent xCreen session" : "Hermes not connected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -172,18 +178,29 @@ public struct Panel<Model: TrayPanelModel>: View {
 
             DisclosureGroup("Settings", isExpanded: $state.showSettings) {
                 VStack(alignment: .leading, spacing: 6) {
-                    TextField("Python executable (absolute path)", text: $state.hermesPython)
+                    Text("Server").font(.caption.weight(.semibold))
+                    TextField("Server URL, e.g. http://100.x.y.z:8765", text: $state.serverURL)
+                        .textFieldStyle(.roundedBorder)
+                    SecureField("Token (from xcreen-server token; leave empty to keep)", text: $state.serverToken)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Save server") { state.saveServerSettings() }
+                        .buttonStyle(.borderless)
+                    Text(state.queueStatus).font(.caption).foregroundStyle(.secondary)
+                    Divider()
+                    Text("Hermes on the server").font(.caption.weight(.semibold))
+                    TextField("Python executable (path on the server)", text: $state.hermesPython)
                         .textFieldStyle(.roundedBorder)
                     TextField("Hermes source root (contains tui_gateway/)", text: $state.hermesRoot)
                         .textFieldStyle(.roundedBorder)
-                    TextField("Obsidian vault (optional)", text: $state.vaultPath)
+                    TextField("Obsidian vault on the server (optional)", text: $state.vaultPath)
                         .textFieldStyle(.roundedBorder)
                     HStack {
+                        Button("Load") { state.runControl(["command": "settings"]) }
                         Button("Auto-detect") { state.autodetectLocalSetup(overwrite: true) }
                         Button("Save") { state.saveHermesExecutable() }
                     }
                     .buttonStyle(.borderless)
-                    Text("xCreen runs Hermes with this Python. Your Hermes profile and defaults stay untouched. Set a vault to get notes in Obsidian.")
+                    Text("The server runs Hermes and writes notes. Your Hermes profile and defaults stay untouched. Set a vault to get notes in Obsidian.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

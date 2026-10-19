@@ -21,17 +21,6 @@ public struct OCREvidence: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
-public struct CaptureBatch: Codable, Identifiable, Sendable, Equatable {
-    public let id: String
-    public let images: [EvidenceImage]
-    public let startedAt: Date
-    public let completedAt: Date
-    public let ocr: [OCREvidence]
-    public init(id: String, images: [EvidenceImage], startedAt: Date, completedAt: Date, ocr: [OCREvidence]) {
-        self.id = id; self.images = images; self.startedAt = startedAt; self.completedAt = completedAt; self.ocr = ocr
-    }
-}
-
 public struct CaptureCheckpoint: Codable, Sendable {
     public var clock: ActiveCaptureClock
     public var startedAt: Date?
@@ -42,70 +31,56 @@ public struct CaptureCheckpoint: Codable, Sendable {
     }
 }
 
+/// One upload in capture order: OCR snapshots travel in groups ahead of the image that
+/// follows them, so every batch the server forms holds the text captured before it.
+public enum UploadItem: Sendable, Equatable {
+    case ocr([OCREvidence])
+    case image(EvidenceImage)
+}
+
+/// The capture outbox. Captured screenshots and OCR stay here, private and bounded by the
+/// same seven-day retention, until the server acknowledges them; then they are deleted.
+/// The server owns batching, the Hermes session and long-term evidence.
 public actor EvidenceStore {
-    private struct BatchRecord: Codable { var batch: CaptureBatch; var status: String; var attempts: Int? = nil; var sourceIDs: [String]? = nil; var sessionID: String? = nil; var receipt: BatchReceipt? = nil; var retryAfter: Date? = nil; var providerRetries: Int? = nil }
-    public enum BatchState: String, Codable, Sendable { case pending, submitting, admitted, completed, uncertain, deadletter }
-    public struct BatchSummary: Codable, Sendable {
-        public let id: String; public let state: BatchState; public let attempts: Int
-        public let startedAt: Date; public let completedAt: Date
-        public let receipt: BatchReceipt?
-    }
-    private struct Index: Codable { var images: [EvidenceImage] = []; var ocr: [OCREvidence] = []; var batches: [BatchRecord] = []; var providerThrottleUntil: Date? = nil }
-    /// Send attempts (including the original) before a provider-failed, receipt-proven
-    /// effect-free batch is deadlettered. Pre-admission failures keep their own limit of 3.
-    public static let maximumProviderAttempts = 6
-    static func providerBackoff(retry: Int, rateLimited: Bool) -> TimeInterval {
-        let exponent = Double(min(max(retry - 1, 0), 4))
-        return rateLimited ? min(15 * 60 * pow(2, exponent), 4 * 3600) : min(2 * 60 * pow(2, exponent), 3600)
-    }
+    private struct Index: Codable { var images: [EvidenceImage] = []; var ocr: [OCREvidence] = [] }
     private static let retention: TimeInterval = 7 * 24 * 60 * 60
-    /// Index and checkpoint reads are deliberately bounded: these are local
-    /// recovery files, not an unbounded import format.
-    // Seven days of OCR text plus batch manifests reached 8.6 MB in real use, and an
-    // unreadable index blocks capture entirely. These are corruption guards, not quotas.
     private static let maximumIndexBytes = 128_000_000
     private static let maximumCheckpointBytes = 32_000_000
     public static let maximumOCRCharacters = 12_000
+    public static let maximumOCRUploadGroup = 200
     private let root: URL
     private let imagesDirectory: URL
-    private let ocrDirectory: URL
     private let indexURL: URL
     private let checkpointURL: URL
+    private let statusURL: URL
     private var index: Index
 
     public static var defaultRoot: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("xCreen/Evidence", isDirectory: true)
+        return base.appendingPathComponent("xCreen/Outbox", isDirectory: true)
     }
 
     public init(root: URL) throws {
         self.root = root.standardizedFileURL
         if FileManager.default.fileExists(atPath: self.root.path), Self.isSymlink(self.root) { throw EvidenceStoreError.unsafePath }
         self.imagesDirectory = self.root.appendingPathComponent("images", isDirectory: true)
-        self.ocrDirectory = self.root.appendingPathComponent("ocr", isDirectory: true)
         self.indexURL = self.root.appendingPathComponent("index.json")
         self.checkpointURL = self.root.appendingPathComponent("capture-checkpoint.json")
+        self.statusURL = self.root.appendingPathComponent("capture-status.json")
         try Self.makePrivateDirectory(self.root)
         try Self.makePrivateDirectory(imagesDirectory)
-        try Self.makePrivateDirectory(ocrDirectory)
-        guard !Self.isSymlink(imagesDirectory), !Self.isSymlink(ocrDirectory) else { throw EvidenceStoreError.unsafePath }
+        guard !Self.isSymlink(imagesDirectory) else { throw EvidenceStoreError.unsafePath }
+        var loaded = Index()
         if FileManager.default.fileExists(atPath: indexURL.path) {
-            self.index = try JSONDecoder().decode(Index.self, from: Self.safeRead(indexURL, in: self.root, maximumBytes: Self.maximumIndexBytes))
-        } else {
-            self.index = Index()
-            try Self.atomicWrite(try JSONEncoder().encode(index), to: indexURL)
+            loaded = try JSONDecoder().decode(Index.self, from: Self.safeRead(indexURL, in: self.root, maximumBytes: Self.maximumIndexBytes))
         }
-        try Self.validate(&index, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory)
-        // Neither a lost submit reply nor an interrupted admitted run proves absence
-        // of effects. Legacy sent/failed were not processing receipts either.
-        for i in index.batches.indices {
-            let status = index.batches[i].status
-            let verified = index.batches[i].receipt?.completesProcessing == true
-            if !["pending", "completed", "deadletter", "uncertain"].contains(status) || (status == "completed" && !verified) { index.batches[i].status = "uncertain" }
-        }
-        try Self.cleanup(&index, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory, checkpointURL: checkpointURL, now: Date())
-        try Self.atomicWrite(try JSONEncoder().encode(index), to: indexURL)
+        let images = imagesDirectory
+        guard loaded.images.allSatisfy({ Self.validID($0.id) && (try? Self.confined($0.fileURL, in: images)) == true }),
+              loaded.ocr.allSatisfy({ Self.validID($0.id) }) else { throw EvidenceStoreError.invalidInput }
+        try Self.cleanup(&loaded, imagesDirectory: images, checkpointURL: checkpointURL, now: Date())
+        try Self.atomicWrite(try JSONEncoder().encode(loaded), to: indexURL)
+        self.index = loaded
     }
 
     public func saveImage(data: Data, timestamp: Date = Date(), authorization: CaptureAuthorization) throws -> EvidenceImage {
@@ -117,18 +92,16 @@ public actor EvidenceStore {
     public func saveCheckpoint(_ checkpoint: CaptureCheckpoint, authorization: CaptureAuthorization) throws {
         try authorization.withAuthorization { try saveCheckpoint(checkpoint) }
     }
-    public func finalizeBatch(_ batch: CaptureBatch, authorization: CaptureAuthorization) throws {
-        try authorization.finalize {
-            try savePendingBatch(batch)
-            try clearCheckpoint()
-        }
+    /// Ends an active-time window (30 images / five active minutes). The server forms the
+    /// batch from what it receives; the client only starts a fresh window.
+    public func closeWindow(authorization: CaptureAuthorization) throws {
+        try authorization.finalize { try clearCheckpoint() }
     }
 
     public func saveImage(data: Data, timestamp: Date = Date()) throws -> EvidenceImage {
         guard !data.isEmpty, data.count <= 30_000_000 else { throw EvidenceStoreError.invalidInput }
         let id = Self.makeID(prefix: "image")
-        let name = Self.timestampName(timestamp, id: id, suffix: "png")
-        let url = imagesDirectory.appendingPathComponent(name)
+        let url = imagesDirectory.appendingPathComponent(Self.timestampName(timestamp, id: id, suffix: "png"))
         try Self.atomicWrite(data, to: url)
         let image = EvidenceImage(id: id, timestamp: timestamp, fileURL: url)
         index.images.append(image); try persist()
@@ -139,31 +112,21 @@ public actor EvidenceStore {
         guard text.count <= Self.maximumOCRCharacters,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw EvidenceStoreError.invalidInput }
         let evidence = OCREvidence(id: Self.makeID(prefix: "ocr"), timestamp: timestamp, text: text, app: String(app.prefix(256)), title: String(title.prefix(1024)))
-        let url = ocrDirectory.appendingPathComponent(Self.timestampName(timestamp, id: evidence.id, suffix: "json"))
-        try Self.atomicWrite(try JSONEncoder().encode(evidence), to: url)
         index.ocr.append(evidence); try persist()
         return evidence
-    }
-
-    public func savePendingBatch(_ batch: CaptureBatch) throws {
-        try Self.validate(batch: batch, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory)
-        if let existing = index.batches.first(where: { $0.batch.id == batch.id }) {
-            guard existing.batch == batch else { throw EvidenceStoreError.invalidInput }
-            return // idempotent finalization must never reset admitted work.
-        }
-        index.batches.append(BatchRecord(batch: batch, status: "pending")); try persist()
     }
 
     public func loadCheckpoint() throws -> CaptureCheckpoint {
         guard FileManager.default.fileExists(atPath: checkpointURL.path) else { return CaptureCheckpoint() }
         var checkpoint = try JSONDecoder().decode(CaptureCheckpoint.self, from: Self.safeRead(checkpointURL, in: root, maximumBytes: Self.maximumCheckpointBytes))
-        try Self.validate(checkpoint: checkpoint, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory)
+        guard checkpoint.ocr.allSatisfy({ Self.validID($0.id) }), checkpoint.images.allSatisfy({ Self.validID($0.id) }) else { throw EvidenceStoreError.invalidInput }
         checkpoint.clock.pause() // a persisted anchor cannot prove continuous eligibility.
         return checkpoint
     }
 
+    /// The checkpoint keeps image records for counting even after their files were uploaded.
     public func saveCheckpoint(_ checkpoint: CaptureCheckpoint) throws {
-        try Self.validate(checkpoint: checkpoint, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory)
+        guard checkpoint.ocr.allSatisfy({ Self.validID($0.id) }), checkpoint.images.allSatisfy({ Self.validID($0.id) }) else { throw EvidenceStoreError.invalidInput }
         try Self.atomicWrite(try JSONEncoder().encode(checkpoint), to: checkpointURL)
     }
 
@@ -172,249 +135,71 @@ public actor EvidenceStore {
         if FileManager.default.fileExists(atPath: checkpointURL.path) { try FileManager.default.removeItem(at: checkpointURL) }
     }
 
+    public struct CaptureStatus: Codable, Equatable, Sendable {
+        public let capture: String; public let reason: String; public let integrity: Bool; public let updated: Date
+    }
+
+    /// Latest capture state and Integrity value, relayed to the server by the uploader.
     public func saveCaptureStatus(state: String, reason: String, integrity: Bool) throws {
-        let values = ["capture": String(state.prefix(32)), "capture_reason": String(reason.prefix(500)), "desired_integrity": integrity ? "on" : "off", "updated": ISO8601DateFormatter().string(from: Date())]
-        try Self.atomicWrite(try JSONEncoder().encode(values), to: root.appendingPathComponent("capture-status.json"))
+        let status = CaptureStatus(capture: String(state.prefix(32)), reason: String(reason.prefix(500)), integrity: integrity, updated: Date())
+        try Self.atomicWrite(try JSONEncoder().encode(status), to: statusURL)
+    }
+
+    public func captureStatus() -> CaptureStatus? {
+        guard let data = try? Self.safeRead(statusURL, in: root, maximumBytes: 64_000) else { return nil }
+        return try? JSONDecoder().decode(CaptureStatus.self, from: data)
     }
 
     public func latestOCR() -> OCREvidence? { index.ocr.filter { !Self.expired($0.timestamp, now: Date()) }.max { $0.timestamp < $1.timestamp } }
 
-    public func searchOCR(query: String, limit: Int = 20) throws -> [OCREvidence] {
-        let terms = query.lowercased().split(whereSeparator: { $0.isWhitespace }).prefix(8)
-        guard !terms.isEmpty else { return [] }
-        return index.ocr.reversed().filter { item in
-            guard !Self.expired(item.timestamp, now: Date()) else { return false }
-            let haystack = "\(item.text) \(item.app) \(item.title)".lowercased()
-            return terms.allSatisfy { haystack.contains($0) }
-        }.prefix(max(0, min(limit, 100))).map { $0 }
-    }
+    public var pendingCounts: (images: Int, ocr: Int) { (index.images.count, index.ocr.count) }
 
-    public func imagesNear(timestamp: Date, seconds: Double = 30) throws -> [EvidenceImage] {
-        guard seconds.isFinite, seconds >= 0 else { throw EvidenceStoreError.invalidInput }
-        let window = min(seconds, 86_400), now = Date()
-        return index.images.filter { item in
-            guard !Self.expired(item.timestamp, now: now),
-                  abs(item.timestamp.timeIntervalSince(timestamp)) <= window,
-                  (try? Self.confined(item.fileURL, in: imagesDirectory)) == true else { return false }
-            return Self.regularFileExists(item.fileURL)
-        }.sorted { $0.timestamp < $1.timestamp }
-    }
-
-    public func image(id: String) throws -> EvidenceImage? {
-        guard Self.validID(id) else { throw EvidenceStoreError.invalidInput }
-        guard let result = index.images.first(where: { $0.id == id }) else { return nil }
-        guard !Self.expired(result.timestamp, now: Date()), try Self.confined(result.fileURL, in: imagesDirectory), Self.regularFileExists(result.fileURL) else { return nil }
-        return result
-    }
-
-    /// Digested images still stored losslessly. Only a verified completed digest
-    /// releases an image: pending, uncertain and checkpoint images keep full quality.
-    public func compressibleImages(limit: Int) -> [EvidenceImage] {
-        let digested = Set(index.batches.filter { $0.status == "completed" }.flatMap { $0.batch.images.map(\.id) })
+    /// The next uploads in capture order, at most `limit` items.
+    public func pendingUploads(limit: Int = 20) -> [UploadItem] {
         let now = Date()
-        return index.images.filter { item in
-            digested.contains(item.id) && item.fileURL.pathExtension.lowercased() == "png" && !Self.expired(item.timestamp, now: now)
-                && (try? Self.confined(item.fileURL, in: imagesDirectory)) == true && Self.regularFileExists(item.fileURL)
-        }.prefix(max(0, min(limit, 1_000))).map { $0 }
+        let images = index.images.filter { !Self.expired($0.timestamp, now: now) }.sorted { $0.timestamp < $1.timestamp }
+        var ocr = index.ocr.filter { !Self.expired($0.timestamp, now: now) }.sorted { $0.timestamp < $1.timestamp }[...]
+        var items: [UploadItem] = []
+        for image in images {
+            guard items.count < limit else { return items }
+            var group: [OCREvidence] = []
+            while let next = ocr.first, next.timestamp <= image.timestamp {
+                group.append(next); ocr = ocr.dropFirst()
+                if group.count == Self.maximumOCRUploadGroup { items.append(.ocr(group)); group = [] }
+            }
+            if !group.isEmpty { items.append(.ocr(group)) }
+            items.append(.image(image))
+        }
+        while !ocr.isEmpty && items.count < limit {
+            let group = Array(ocr.prefix(Self.maximumOCRUploadGroup)); ocr = ocr.dropFirst(group.count)
+            items.append(.ocr(group))
+        }
+        return Array(items.prefix(limit))
     }
 
-    /// Replaces a digested PNG with its JPEG. Order is new file, index, then original,
-    /// so a crash leaves the index pointing at a complete file either way. Returns nil
-    /// when the image is no longer an eligible, unchanged PNG.
-    public func replaceImage(id: String, expecting original: URL, with data: Data) throws -> EvidenceImage? {
-        guard Self.validID(id), data.count > 3, data.count <= 30_000_000, data.starts(with: [0xff, 0xd8, 0xff]) else { throw EvidenceStoreError.invalidInput }
-        guard let i = index.images.firstIndex(where: { $0.id == id }), index.images[i].fileURL == original,
-              original.pathExtension.lowercased() == "png", !Self.expired(index.images[i].timestamp, now: Date()),
-              index.batches.contains(where: { $0.status == "completed" && $0.batch.images.contains { $0.id == id } }),
-              try Self.confined(original, in: imagesDirectory), Self.regularFileExists(original) else { return nil }
-        let replacement = original.deletingPathExtension().appendingPathExtension("jpg")
-        guard try Self.confined(replacement, in: imagesDirectory) else { throw EvidenceStoreError.unsafePath }
-        let image = EvidenceImage(id: id, timestamp: index.images[i].timestamp, fileURL: replacement)
-        try Self.atomicWrite(data, to: replacement)
-        let old = index
-        index.images[i] = image
-        for b in index.batches.indices where index.batches[b].batch.images.contains(where: { $0.id == id }) {
-            let batch = index.batches[b].batch
-            index.batches[b].batch = CaptureBatch(id: batch.id, images: batch.images.map { $0.id == id ? image : $0 }, startedAt: batch.startedAt, completedAt: batch.completedAt, ocr: batch.ocr)
+    /// Removes acknowledged items (and image files) from the outbox.
+    public func acknowledge(ocr ids: [String] = [], image id: String? = nil) throws {
+        let drop = Set(ids)
+        index.ocr.removeAll { drop.contains($0.id) }
+        if let id, let i = index.images.firstIndex(where: { $0.id == id }) {
+            let image = index.images.remove(at: i)
+            if try Self.confined(image.fileURL, in: imagesDirectory) { try Self.removeIfPresent(image.fileURL) }
         }
-        do { try persist() } catch { index = old; try? Self.removeIfPresent(replacement); throw error }
-        try? Self.removeIfPresent(original) // a leftover is removed by removeSupersededOriginals or TTL
-        return image
-    }
-
-    /// Removes PNG originals left behind by a crash after their JPEG was indexed.
-    public func removeSupersededOriginals() throws {
-        let referenced = Set(index.images.map(\.fileURL.standardizedFileURL.path))
-        for image in index.images where image.fileURL.pathExtension.lowercased() == "jpg" {
-            let original = image.fileURL.deletingPathExtension().appendingPathExtension("png")
-            guard !referenced.contains(original.standardizedFileURL.path), try Self.confined(original, in: imagesDirectory), Self.regularFileExists(original) else { continue }
-            try Self.removeIfPresent(original)
-        }
-    }
-
-    /// Due pending work only. A provider rate limit throttles the whole automatic
-    /// pipeline (same account), a per-batch backoff only that batch.
-    public func pendingBatches(now: Date = Date()) throws -> [CaptureBatch] {
-        guard (index.providerThrottleUntil ?? .distantPast) <= now else { return [] }
-        return index.batches.filter { $0.status == "pending" && ($0.retryAfter ?? .distantPast) <= now && !Self.expired($0.batch.completedAt, now: now) }.map(\.batch).sorted { $0.startedAt < $1.startedAt }
-    }
-    /// Earliest instant at which backed-off pending work becomes due, if any.
-    public func nextRetryDate(now: Date = Date()) -> Date? {
-        let waiting = index.batches.filter { $0.status == "pending" && !Self.expired($0.batch.completedAt, now: now) }
-        guard !waiting.isEmpty else { return nil }
-        let throttle = index.providerThrottleUntil ?? .distantPast
-        let due = waiting.map { max($0.retryAfter ?? .distantPast, throttle) }.min() ?? .distantPast
-        return due > now ? due : nil
-    }
-    public func batchPage(after: String = "", limit: Int = 20) -> [BatchSummary] {
-        var rows = index.batches.filter { $0.batch.id > after }.sorted { $0.batch.id < $1.batch.id }.prefix(max(1, min(limit, 20))).map {
-            BatchSummary(id: $0.batch.id, state: BatchState(rawValue: $0.status) ?? .uncertain, attempts: $0.attempts ?? 0, startedAt: $0.batch.startedAt, completedAt: $0.batch.completedAt, receipt: $0.receipt)
-        }
-        while rows.count > 1, (try? JSONEncoder().encode(rows).count) ?? Int.max > 24_000 { rows.removeLast() }
-        return rows
-    }
-    /// Classifies a finished automatic attempt. Only a host receipt for this exact
-    /// binding that explicitly proves zero reserved/written effects and no terminal
-    /// result (`retry_safe`) plus a terminal provider failure may return work to
-    /// pending. Effects, unknown effects or an old host stay uncertain.
-    public func recordBatchFailure(id: String, cancelled: Bool = false, error: Error? = nil, now: Date = Date()) throws {
-        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
-        let old = index
-        let gatewayError = error as? HermesGatewayError
-        // Not sent: deferral, Integrity cancellation or no connection never consume attempts.
-        let notSent = cancelled || gatewayError == .cancelled || gatewayError == .unavailable || (error as? EvidenceStoreError) == .deferred
-        switch index.batches[i].status {
-        case "pending":
-            if notSent { return }
-            let attempts = (index.batches[i].attempts ?? 0) + 1
-            index.batches[i].attempts = attempts
-            if attempts >= ((index.batches[i].providerRetries ?? 0) > 0 ? Self.maximumProviderAttempts : 3) { index.batches[i].status = "deadletter" }
-        case "submitting", "admitted", "uncertain":
-            if case .providerFailure(let limited)? = gatewayError, Self.retrySafe(index.batches[i]) {
-                requeue(i, now: now, backoff: true, rateLimited: limited)
-            } else if index.batches[i].status == "uncertain" { return }
-            else { index.batches[i].status = "uncertain" }
-        default: return
-        }
-        do { try persist() } catch { index = old; throw error }
-    }
-    /// Explicit recovery for work stranded uncertain before automatic classification
-    /// existed (or after a crash/disconnect): requires the same zero-effect host proof.
-    @discardableResult public func requeueRetrySafe(id: String, now: Date = Date()) throws -> Bool {
-        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
-        guard index.batches[i].status == "uncertain", Self.retrySafe(index.batches[i]) else { return false }
-        let old = index
-        requeue(i, now: now, backoff: false, rateLimited: false)
-        do { try persist() } catch { index = old; throw error }
-        return index.batches[i].status == "pending"
-    }
-    public func batchState(id: String) -> BatchState? { index.batches.first { $0.batch.id == id }.flatMap { BatchState(rawValue: $0.status) } }
-    public func uncertainBatchIDs() -> Set<String> { Set(index.batches.filter { $0.status == "uncertain" }.map(\.batch.id)) }
-    private static func retrySafe(_ record: BatchRecord) -> Bool {
-        guard let receipt = record.receipt, let session = record.sessionID else { return false }
-        return receipt.retrySafe == true && !receipt.verified && receipt.effects.isEmpty && receipt.sessionID == session
-            && receipt.batchID == record.batch.id
-    }
-    private func requeue(_ i: Int, now: Date, backoff: Bool, rateLimited: Bool) {
-        let retries = (index.batches[i].providerRetries ?? 0) + 1
-        index.batches[i].providerRetries = retries
-        // A consumed retry proof cannot authorize a later attempt; the next binding is fresh.
-        index.batches[i].receipt = nil
-        index.batches[i].sessionID = nil
-        let delay = backoff ? Self.providerBackoff(retry: retries, rateLimited: rateLimited) : 0
-        // An observed rate limit throttles all automatic sends, even if this batch is exhausted.
-        if rateLimited, delay > 0 { index.providerThrottleUntil = max(index.providerThrottleUntil ?? .distantPast, now.addingTimeInterval(delay)) }
-        if (index.batches[i].attempts ?? 0) >= Self.maximumProviderAttempts || Self.expired(index.batches[i].batch.completedAt, now: now) {
-            index.batches[i].status = "deadletter"; index.batches[i].retryAfter = nil; return
-        }
-        index.batches[i].status = "pending"
-        index.batches[i].retryAfter = delay > 0 ? now.addingTimeInterval(delay) : nil
-    }
-    public func batchBindings() -> [BatchBinding] {
-        index.batches.filter { $0.status != "pending" && $0.status != "deadletter" }.map {
-            BatchBinding(batchID: $0.batch.id, sourceIDs: $0.sourceIDs ?? ($0.batch.images.map(\.id) + $0.batch.ocr.map(\.id)), sessionID: $0.sessionID)
-        }
-    }
-    public func bindBatch(id: String, sessionID: String) throws {
-        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }), index.batches[i].sessionID == nil || index.batches[i].sessionID == sessionID else { throw EvidenceStoreError.invalidInput }
-        let old = index
-        index.batches[i].sessionID = sessionID
-        index.batches[i].sourceIDs = (index.batches[i].batch.images.map(\.id) + index.batches[i].batch.ocr.map(\.id)).sorted()
-        do { try persist() } catch { index = old; throw error }
-    }
-    public func invalidateReceipt(id: String) throws {
-        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
-        let old = index
-        index.batches[i].status = "uncertain"; index.batches[i].receipt = nil
-        do { try persist() } catch { index = old; throw error }
-    }
-    public func reconcile(_ receipt: BatchReceipt) throws {
-        guard let i = index.batches.firstIndex(where: { $0.batch.id == receipt.batchID }),
-              index.batches[i].sessionID == receipt.sessionID,
-              (index.batches[i].sourceIDs ?? (index.batches[i].batch.images.map(\.id) + index.batches[i].batch.ocr.map(\.id))).sorted() == receipt.sourceIDs.sorted() else { throw EvidenceStoreError.invalidInput }
-        let old = index
-        index.batches[i].receipt = receipt
-        index.batches[i].status = receipt.completesProcessing ? "completed" : "uncertain"
-        do { try persist() } catch { index = old; throw error }
-    }
-    public func transitionBatch(id: String, to state: BatchState, now: Date = Date()) throws {
-        guard let i = index.batches.firstIndex(where: { $0.batch.id == id }) else { throw EvidenceStoreError.invalidInput }
-        if state == .submitting, index.batches[i].status == "pending",
-           max(index.providerThrottleUntil ?? .distantPast, index.batches[i].retryAfter ?? .distantPast) > now { throw EvidenceStoreError.deferred }
-        let previous = BatchState(rawValue: index.batches[i].status) ?? .uncertain
-        let allowed: Bool
-        switch (previous, state) {
-        case (.pending, .submitting), (.submitting, .admitted), (.submitting, .uncertain), (.admitted, .uncertain): allowed = true
-        default: allowed = false
-        }
-        guard allowed else { throw EvidenceStoreError.invalidInput }
-        let old = index
-        if state == .submitting { index.batches[i].attempts = (index.batches[i].attempts ?? 0) + 1; index.batches[i].retryAfter = nil }
-        index.batches[i].status = state.rawValue
-        do { try persist() } catch { index = old; throw error }
-    }
-    public func markBatch(id: String, status: String) throws {
-        // Compatibility with older callers: sent is transport completion, not a
-        // verified vault result. No generic API may reset ambiguous work to pending.
-        if status == "sent" {
-            guard let i = index.batches.firstIndex(where: { $0.batch.id == id }), index.batches[i].status == "pending" else { throw EvidenceStoreError.invalidInput }
-            index.batches[i].status = "uncertain"; try persist(); return
-        }
-        guard status == "pending", let i = index.batches.firstIndex(where: { $0.batch.id == id }), index.batches[i].status == "pending" else { throw EvidenceStoreError.invalidInput }
-    }
-
-    public func cleanup(now: Date = Date()) throws {
-        try Self.cleanup(&index, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory, checkpointURL: checkpointURL, now: now)
         try persist()
     }
 
-    private static func cleanup(_ index: inout Index, imagesDirectory: URL, ocrDirectory: URL, checkpointURL: URL, now: Date) throws {
+    public func cleanup(now: Date = Date()) throws {
+        try Self.cleanup(&index, imagesDirectory: imagesDirectory, checkpointURL: checkpointURL, now: now)
+        try persist()
+    }
+
+    private static func cleanup(_ index: inout Index, imagesDirectory: URL, checkpointURL: URL, now: Date) throws {
         let cutoff = now.addingTimeInterval(-retention)
-        let staleImages = index.images.filter { $0.timestamp < cutoff }
-        for image in staleImages where try confined(image.fileURL, in: imagesDirectory) { try removeIfPresent(image.fileURL) }
+        for image in index.images where image.timestamp < cutoff {
+            if try confined(image.fileURL, in: imagesDirectory) { try removeIfPresent(image.fileURL) }
+        }
         index.images.removeAll { $0.timestamp < cutoff }
-        let staleOCR = index.ocr.filter { $0.timestamp < cutoff }
-        for item in staleOCR {
-            let url = ocrDirectory.appendingPathComponent(Self.timestampName(item.timestamp, id: item.id, suffix: "json"))
-            if try confined(url, in: ocrDirectory) { try removeIfPresent(url) }
-        }
         index.ocr.removeAll { $0.timestamp < cutoff }
-        // Keep source IDs/receipts, not raw derivatives, beyond evidence expiry.
-        for i in index.batches.indices {
-            let batch = index.batches[i].batch
-            if batch.completedAt < cutoff || batch.images.contains(where: { $0.timestamp < cutoff }) || batch.ocr.contains(where: { $0.timestamp < cutoff }) {
-                if index.batches[i].sourceIDs == nil { index.batches[i].sourceIDs = (batch.images.map(\.id) + batch.ocr.map(\.id)).sorted() }
-                index.batches[i].batch = CaptureBatch(id: batch.id, images: [], startedAt: batch.startedAt, completedAt: batch.completedAt, ocr: [])
-                if index.batches[i].status == "pending" { index.batches[i].status = "deadletter" }
-            }
-        }
-        let archiveCutoff = now.addingTimeInterval(-180 * 86_400)
-        index.batches.removeAll { $0.batch.completedAt < archiveCutoff }
-        var archived = index.batches.filter { $0.batch.completedAt < cutoff }.sorted { $0.batch.completedAt > $1.batch.completedAt }
-        if archived.count > 128 { archived = Array(archived.prefix(128)) }
-        while !archived.isEmpty, (try JSONEncoder().encode(archived)).count > 2_000_000 { archived.removeLast() }
-        let retained = Set(archived.map { $0.batch.id })
-        index.batches.removeAll { $0.batch.completedAt < cutoff && !retained.contains($0.batch.id) }
         if FileManager.default.fileExists(atPath: checkpointURL.path) {
             var checkpoint = try JSONDecoder().decode(CaptureCheckpoint.self, from: safeRead(checkpointURL, in: checkpointURL.deletingLastPathComponent(), maximumBytes: maximumCheckpointBytes))
             checkpoint.images.removeAll { $0.timestamp < cutoff }
@@ -423,20 +208,13 @@ public actor EvidenceStore {
             if checkpoint.images.isEmpty && checkpoint.ocr.isEmpty && checkpoint.startedAt.map({ $0 < cutoff }) == true { try removeIfPresent(checkpointURL) }
             else { try atomicWrite(try JSONEncoder().encode(checkpoint), to: checkpointURL) }
         }
-        // A crash between the atomic evidence write and index write leaves an
-        // unindexed file. It is still xCreen-owned and must receive the same TTL.
-        try removeExpiredFiles(in: imagesDirectory, before: cutoff)
-        try removeExpiredFiles(in: ocrDirectory, before: cutoff)
-    }
-
-    private static func removeExpiredFiles(in directory: URL, before cutoff: Date) throws {
+        // A crash between the atomic file write and the index write leaves an unindexed
+        // file. It is still xCreen-owned and must receive the same TTL.
         let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey, .isSymbolicLinkKey]
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])
-        for file in files {
+        for file in try FileManager.default.contentsOfDirectory(at: imagesDirectory, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]) {
             let values = try file.resourceValues(forKeys: keys)
             guard values.isRegularFile == true, values.isSymbolicLink != true,
-                  let modified = values.contentModificationDate, modified < cutoff,
-                  try confined(file, in: directory) else { continue }
+                  let modified = values.contentModificationDate, modified < cutoff, try confined(file, in: imagesDirectory) else { continue }
             try removeIfPresent(file)
         }
     }
@@ -481,18 +259,6 @@ public actor EvidenceStore {
     private static func regularFileExists(_ url: URL) -> Bool { (try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])) .map { $0.isRegularFile == true && $0.isSymbolicLink != true } ?? false }
     private static func expired(_ date: Date, now: Date) -> Bool { date < now.addingTimeInterval(-retention) }
     private static func removeIfPresent(_ url: URL) throws { if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) } }
-    private static func validate(_ index: inout Index, imagesDirectory: URL, ocrDirectory: URL) throws {
-        guard index.images.allSatisfy({ validID($0.id) && (try? confined($0.fileURL, in: imagesDirectory)) == true }),
-              index.ocr.allSatisfy({ validID($0.id) }),
-              index.batches.allSatisfy({ validID($0.batch.id) }) else { throw EvidenceStoreError.invalidInput }
-        for record in index.batches { try validate(batch: record.batch, imagesDirectory: imagesDirectory, ocrDirectory: ocrDirectory) }
-    }
-    private static func validate(batch: CaptureBatch, imagesDirectory: URL, ocrDirectory: URL) throws {
-        guard validID(batch.id), batch.images.allSatisfy({ validID($0.id) && (try? confined($0.fileURL, in: imagesDirectory)) == true }), batch.ocr.allSatisfy({ validID($0.id) }) else { throw EvidenceStoreError.invalidInput }
-    }
-    private static func validate(checkpoint: CaptureCheckpoint, imagesDirectory: URL, ocrDirectory: URL) throws {
-        guard checkpoint.images.allSatisfy({ validID($0.id) && (try? confined($0.fileURL, in: imagesDirectory)) == true }), checkpoint.ocr.allSatisfy({ validID($0.id) }) else { throw EvidenceStoreError.invalidInput }
-    }
 }
 
 public enum EvidenceStoreError: Error, Equatable { case invalidInput, unsafePath, deferred }
