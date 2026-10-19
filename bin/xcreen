@@ -17,8 +17,11 @@ HELP = '''usage: xcreen [--json] COMMAND
   connection connect|disconnect|reconnect  (also accepted as top-level commands)
   models [list] | model select PROVIDER MODEL   (select also saves the xCreen default)
   model default [get] | model default PROVIDER MODEL  xCreen-session default only
-  settings [show] | settings set python|root|vault VALUE
-  settings autodetect | autodetect
+  server [show]                   xCreen server URL, reachability and upload queue
+  server set URL [--token-stdin | --token-file PATH]   token is stored in the Keychain
+  flush                          upload everything still queued now
+  settings [show] | settings set python|root|vault|timezone VALUE   (paths on the server)
+  settings autodetect | autodetect   find Hermes and the vault on the server
   ask QUESTION [--wait-ms 0..30000]  explicit submission to the existing xCreen session
   history [--after CURSOR]        bounded sanitized history pages
   batches [--after BATCH_ID]      up to 20 durable batch metadata records
@@ -28,7 +31,7 @@ HELP = '''usage: xcreen [--json] COMMAND
   images [list|open ID]           reply attachment metadata/open through the app
   panel [show|hide]
   start | stop | restart | quit
-  logs [-n N] [--no-follow] [--gateway]
+  logs [-n N] [--no-follow] [--gateway | --server]   (server logs only for a local server)
 '''
 
 
@@ -43,7 +46,7 @@ def parse_command(args):
             return {'command': 'visibility', 'value': rest[1]}
     if name == 'connection' and len(rest) == 1:
         name, rest = rest[0], []
-    if name in ('status', 'connect', 'disconnect', 'reconnect', 'cancel', 'history', 'verify', 'quit', 'autodetect') and not rest:
+    if name in ('status', 'connect', 'disconnect', 'reconnect', 'cancel', 'history', 'verify', 'quit', 'autodetect', 'flush') and not rest:
         return {'command': name}
     if name == 'batches' and rest == ['retry']:
         return {'command': 'retrybatches'}
@@ -69,8 +72,20 @@ def parse_command(args):
             return {'command': name}
         if rest == ['autodetect']:
             return {'command': 'autodetect'}
-        if len(rest) == 3 and rest[0] == 'set' and rest[1] in ('python', 'root', 'vault'):
+        if len(rest) == 3 and rest[0] == 'set' and rest[1] in ('python', 'root', 'vault', 'timezone'):
             return {'command': name, 'value': rest[1] + '=' + rest[2]}
+    if name == 'server':
+        if rest in ([], ['show']):
+            return {'command': 'server'}
+        if len(rest) in (2, 3, 4) and rest[0] == 'set':
+            request = {'command': 'server', 'value': rest[1]}
+            if rest[2:] == ['--token-stdin']:
+                request['token'] = sys.stdin.readline().strip()
+            elif len(rest) == 4 and rest[2] == '--token-file':
+                request['token'] = Path(rest[3]).expanduser().read_text().strip()
+            elif rest[2:]:
+                raise ValueError('invalid command or arguments\n' + HELP)
+            return request
     if name == 'panel' and rest in ([], ['show'], ['hide']):
         return {'command': name, 'value': rest[0] if rest else 'show'}
     if name == 'images':
@@ -170,16 +185,17 @@ def main(args=None):
     if args == ['stop']:
         args = ['quit']
     if args[0] == 'logs':
-        n, follow, gateway = 40, True, False
+        n, follow, name = 40, True, 'xcreen.log'
         rest = args[1:]
         while rest:
             arg = rest.pop(0)
             if arg == '--no-follow': follow = False
-            elif arg == '--gateway': gateway = True
+            elif arg == '--gateway': name = 'gateway.log'
+            elif arg == '--server': name = 'server.log'
             elif arg == '-n' and rest: n = int(rest.pop(0))
             else: raise ValueError('invalid logs arguments')
         if not 1 <= n <= 10000: raise ValueError('invalid log count')
-        file = Path.home() / 'Library/Logs/xCreen' / ('gateway.log' if gateway else 'xcreen.log')
+        file = Path.home() / 'Library/Logs/xCreen' / name
         return subprocess.call(['/usr/bin/tail', '-n', str(n)] + (['-F'] if follow else []) + [str(file)])
     result = request(parse_command(args))
     print(json.dumps(result if as_json else result.get('reply') or result.get('snapshot') or result, indent=2, ensure_ascii=False))
