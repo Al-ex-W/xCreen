@@ -13,7 +13,7 @@ An open source alternative to Rewind and Microsoft Recall, for Macs running Herm
 ## What it does
 
 - **Menu-bar tray, Spotlight and CLI.** Ask questions about what you've seen from the tray, the macOS 26+ "Ask xCreen" Spotlight action or the "Search xCreen" row Spotlight offers under "Search in Apps" for any typed text (both fill the question in, you submit), or `xcreen ask` in a terminal.
-- **Local capture with dedup.** Runs Apple Vision OCR on the foreground window at most once per second and drops text that is ≥90% similar to the last snapshot. Saves a screenshot every 10 active seconds.
+- **Local capture with dedup.** Runs Apple Vision OCR on the foreground window at most once per second and drops text that is ≥90% similar to the last snapshot. Saves a screenshot every 10 active seconds, losslessly until its batch is digested, then as a mozjpeg JPEG at about 1/8 the size.
 - **Batches into one Hermes session.** Every 5 active minutes (or 30 images), a batch goes to a single persistent xCreen session in your Hermes Agent. It does not start a new chat each time.
 - **Notes that read like yours.** The model first reads your vault's own conventions (e.g. `Agent/Vault Conventions.md`), then adds only what's worth remembering — decisions, deadlines, milestones, people, ideas — as plain bullets with `[[wikilinks]]` in that day's Daily note, and a dated line in a related existing project/person/organisation note when relevant. No page-by-page activity log and no ids or HTML comments in your notes; provenance (evidence ids, exact text, hashes) stays in xCreen's private journal. A batch with nothing worth noting writes nothing.
 - **Integrity switch.** One switch, controlled only by you, stops all new screenshots and OCR. It is ON at first launch and keeps your choice across restarts.
@@ -42,7 +42,7 @@ For Mac users who run Hermes Agent and keep notes in Obsidian.
 
 - **A working [Hermes Agent](https://github.com/NousResearch/hermes-agent) install is required.** xCreen does not include a model or keep API keys. It uses your Hermes profile read-only.
 - **Local OCR does not mean local inference.** Batches and questions go to the provider behind your chosen route, and that provider's retention rules apply. For on-device inference, configure a local model in Hermes.
-- macOS 14 or later. Building from source needs Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.
+- macOS 14 or later. Building from source needs Xcode/Swift and Python 3. Homebrew `mozjpeg` compresses digested screenshots; the install script adds it. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.
 
 ## Quick start
 
@@ -58,7 +58,7 @@ Or download the zip from [release 1.0.0](https://github.com/Al-ex-W/xCreen/relea
 
 - **What's captured** (only while Integrity is OFF and the Mac is unlocked and awake): screenshots and OCR text of the eligible foreground window.
 - **Where it's stored:** in private files under `~/Library/Application Support/xCreen`, outside your vault and outside this repository. This storage is not encrypted, so use FileVault. Only short distilled bullets go into your vault; their evidence links live in the private receipt journal under `~/.hermes/xcreen-receipts`, not in notes.
-- **Retention:** raw evidence expires after 7 days. Anything already sent to your model provider or saved in Hermes history follows their retention rules. Deletion does not guarantee forensic erasure.
+- **Retention:** raw evidence expires after 7 days. Screenshots are recompressed to JPEG once their batch is digested, so later questions see a lossy copy; the digest itself always uses the lossless capture. Anything already sent to your model provider or saved in Hermes history follows their retention rules. Deletion does not guarantee forensic erasure.
 - **Excluded:** known password managers (1Password, Bitwarden, LastPass, Dashlane, KeePass, Apple Passwords, Keychain), System Settings, lock and login screens, and xCreen itself.
 - **NOT protected:** browser password fields, password-manager browser extensions and popovers, and incognito/private windows are **not detected or redacted**. Turn Integrity ON before sensitive browsing.
 - **Vault writes are confined:** Markdown only, inside existing vault folders; never `Agent/`, `Archive/`, templates or hidden folders (`.obsidian`), never outside the vault, bounded size, and xCreen never deletes or rewrites your text (it only adds lines or revises lines it wrote itself).

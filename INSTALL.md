@@ -1,6 +1,6 @@
 # Installing xCreen
 
-Requires macOS 14+, Xcode/Swift and Python 3, plus an installed [Hermes Agent](https://github.com/NousResearch/hermes-agent) (check with `hermes --print-runtime-command`). xCreen uses your Hermes profile read-only and sends inference to whichever provider your selected route uses; local OCR does not make inference local. Do not edit Hermes auth/config, grant screen permissions, enable capture, inspect private vault contents or run inference to verify installation.
+Requires macOS 14+, Xcode/Swift, Python 3 and Homebrew `mozjpeg` (the install script adds it; without it digested screenshots stay PNG), plus an installed [Hermes Agent](https://github.com/NousResearch/hermes-agent) (check with `hermes --print-runtime-command`). xCreen uses your Hermes profile read-only and sends inference to whichever provider your selected route uses; local OCR does not make inference local. Do not edit Hermes auth/config, grant screen permissions, enable capture, inspect private vault contents or run inference to verify installation.
 
 ```sh
 git clone https://github.com/Al-ex-W/xCreen.git

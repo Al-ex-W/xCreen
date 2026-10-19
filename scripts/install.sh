@@ -20,6 +20,15 @@ done
 [[ "$(uname)" == "Darwin" ]] || { echo "xCreen needs macOS 14+" >&2; exit 1; }
 command -v swift >/dev/null || { echo "Swift toolchain missing: run xcode-select --install" >&2; exit 1; }
 
+# Digested screenshots are recompressed with mozjpeg; without it they stay PNG (~8x larger).
+if [[ ! -x /opt/homebrew/opt/mozjpeg/bin/cjpeg && ! -x /usr/local/opt/mozjpeg/bin/cjpeg ]]; then
+  if command -v brew >/dev/null; then
+    brew install mozjpeg || echo "mozjpeg install failed: digested screenshots will stay PNG" >&2
+  else
+    echo "Homebrew not found: digested screenshots will stay PNG (install mozjpeg to compress them)" >&2
+  fi
+fi
+
 # Hermes reports its own Python and source root; this is the same lookup the app does.
 HERMES=""
 for candidate in "$HOME/.local/bin/hermes" /opt/homebrew/bin/hermes /usr/local/bin/hermes "$(command -v hermes || true)"; do
