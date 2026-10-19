@@ -54,6 +54,24 @@ class CLITests(unittest.TestCase):
         for args in (['session', 'visibility', 'maybe'], ['session', 'visibility', 'on', 'off']):
             self.assertRaises(ValueError, cli.parse_command, args)
 
+    def test_server_and_flush_parser_reads_token_only_from_stdin_or_file(self):
+        import io, sys, tempfile
+        cli = _load()
+        self.assertEqual(cli.parse_command(['server']), {'command': 'server'})
+        self.assertEqual(cli.parse_command(['server', 'set', 'http://100.64.0.1:8765']), {'command': 'server', 'value': 'http://100.64.0.1:8765'})
+        stdin, sys.stdin = sys.stdin, io.StringIO('secret-token\n')
+        try:
+            self.assertEqual(cli.parse_command(['server', 'set', 'http://127.0.0.1:8765', '--token-stdin']),
+                             {'command': 'server', 'value': 'http://127.0.0.1:8765', 'token': 'secret-token'})
+        finally:
+            sys.stdin = stdin
+        with tempfile.NamedTemporaryFile('w', suffix='.token') as handle:
+            handle.write('file-token\n'); handle.flush()
+            self.assertEqual(cli.parse_command(['server', 'set', 'http://127.0.0.1:8765', '--token-file', handle.name])['token'], 'file-token')
+        self.assertRaises(ValueError, cli.parse_command, ['server', 'set', 'http://127.0.0.1:8765', 'literal-token'])
+        self.assertEqual(cli.parse_command(['flush']), {'command': 'flush'})
+        self.assertEqual(cli.parse_command(['settings', 'set', 'timezone', 'UTC']), {'command': 'settings', 'value': 'timezone=UTC'})
+
     def test_bounded_history_and_batch_page_parser(self):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         assert spec is not None
