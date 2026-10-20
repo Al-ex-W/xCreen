@@ -58,6 +58,8 @@ def cmd_init(args) -> int:
     config.save()
     Path(config.data_dir).mkdir(mode=0o700, parents=True, exist_ok=True)
     create_token(config)
+    if args.session_id:
+        imported["stored_session_id"] = args.session_id
     state = {k: imported[k] for k in ("stored_session_id", "session_visible", "model_default") if imported.get(k) is not None}
     if state:
         from .session import StateFile
@@ -187,6 +189,7 @@ def main(argv=None) -> int:
     init.add_argument("--timezone")
     init.add_argument("--import-mac-app", action="store_true", help="import settings and session from the 1.x app (macOS)")
     init.add_argument("--no-detect", action="store_true", help="don't look for Hermes or an Obsidian vault")
+    init.add_argument("--session-id", help="resume this existing Hermes session (e.g. the one the 1.x app used)")
     init.set_defaults(func=cmd_init)
     serve = sub.add_parser("serve", help="run the server")
     serve.add_argument("-v", "--verbose", action="store_true")
