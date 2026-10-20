@@ -23,7 +23,7 @@ private actor FakeServer: XCreenServerAPI {
         if image.id == rejectImage { throw ServerAPIError.rejected(status: 400, code: "invalid_request", message: "image must be PNG or JPEG") }
         images.append(image.id); order.append(image.id)
     }
-    func image(id: String) async throws -> Data { Data() }
+    func image(id: String) async throws -> ServerImage { ServerImage(data: Data(), capturedAt: nil) }
     func reportCapture(state: String, reason: String, integrity: Bool) async throws { try check(); captures.append((state, integrity)) }
     func ask(_ question: String) async throws -> ServerTurn { throw ServerAPIError.invalidResponse }
     func turn(id: String, after: Int, waitMilliseconds: Int) async throws -> ServerTurn { throw ServerAPIError.invalidResponse }
@@ -214,7 +214,9 @@ final class ServerContractTests: XCTestCase {
         XCTAssertEqual(status.unbatched?["ocr"], 1)
         XCTAssertFalse(status.hermes.configured)
         let downloaded = try await client.image(id: "image-1")
-        XCTAssertEqual(downloaded, png)
+        XCTAssertEqual(downloaded.data, png)
+        let captured = try XCTUnwrap(downloaded.capturedAt)
+        XCTAssertEqual(captured.timeIntervalSince1970, image.timestamp.timeIntervalSince1970, accuracy: 0.002)
         do { try await client.uploadOCR([OCREvidence(id: "ocr-1", timestamp: t0, text: "changed", app: "com.app", title: "T")]); XCTFail("conflict accepted") }
         catch let error as ServerAPIError { XCTAssertTrue(error.isPermanentRejection) }
         let batches = try await client.batches(after: "")

@@ -48,6 +48,7 @@ import XCreenUI
     private var uploader: Uploader?
     private var poller: Task<Void, Never>?
     private var activeTurn: String?
+    private let appendixCache = AppendixCache()
     private let defaults: UserDefaults
     private let log = ActivityLog.shared
     private static let serverURLKey = "xcreen.server.url"
@@ -75,6 +76,7 @@ import XCreenUI
         } catch {
             captureStatus = "Capture blocked — local outbox could not be opened."
         }
+        appendixCache.prune()  // copies from earlier answers never outlive the app session
         configureServer()
     }
 
@@ -224,7 +226,7 @@ import XCreenUI
         let server = try requireServer()
         let turn = try await server.ask(question)
         activeTurn = turn.id
-        streamedReply = ""; appendix = []; submissionMessage = "Asking Hermes…"
+        streamedReply = ""; appendix = []; appendixCache.prune(); submissionMessage = "Asking Hermes…"
         lastQuestion = question
         query = AskFieldPolicy.fieldAfterAdmission(current: query, submitted: question)
         askGenerating = true
@@ -261,16 +263,15 @@ import XCreenUI
     /// private cache so the tray can show and open them.
     private func resolveAppendix(_ reply: String) {
         let ids = EvidenceReferences.imageIDs(in: reply)
+        appendixCache.prune(keeping: Set(ids))
         guard let server, !ids.isEmpty else { appendix = []; return }
+        let cache = appendixCache
         Task { [weak self] in
-            let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("xCreen/appendix", isDirectory: true)
-            try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             var found: [EvidenceImage] = []
             for id in ids {
-                guard let data = try? await server.image(id: id) else { continue }
-                let url = cache.appendingPathComponent("\(id).\(data.starts(with: [0xff, 0xd8, 0xff]) ? "jpg" : "png")")
-                guard FileManager.default.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600]) else { continue }
-                found.append(EvidenceImage(id: id, timestamp: Date(), fileURL: url))
+                guard let image = try? await server.image(id: id),
+                      let stored = try? cache.store(id: id, data: image.data, capturedAt: image.capturedAt) else { continue }
+                found.append(stored)
             }
             guard let self, self.streamedReply == reply else { return }
             self.appendix = found

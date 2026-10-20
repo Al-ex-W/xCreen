@@ -45,7 +45,7 @@ Every 30th image completes a batch (images and the OCR captured up to the last o
 
 ### `GET /v1/images/{id}`
 
-The stored image (`image/png`, or `image/jpeg` once recompressed after its digest), with its capture time in `X-Xcreen-Captured-At`. Used for screenshots cited in answers (`xcreen-image:<id>`).
+The stored image (`image/png`, or `image/jpeg` once recompressed after its digest), with its capture time in `X-Xcreen-Captured-At` (UTC, milliseconds, e.g. `2026-10-20T13:38:11.123Z`). Used for screenshots cited in answers (`xcreen-image:<id>`).
 
 ### `POST /v1/capture`
 

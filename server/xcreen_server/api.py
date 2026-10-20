@@ -13,7 +13,7 @@ import json
 import logging
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -35,6 +35,12 @@ class HTTPError(Exception):
     def __init__(self, status: int, code: str, message: str):
         super().__init__(message)
         self.status, self.code = status, code
+
+
+def iso_millis(moment: datetime) -> str:
+    """UTC with millisecond precision and a Z suffix, which every ISO-8601 parser accepts."""
+    utc = moment.astimezone(timezone.utc)
+    return utc.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc.microsecond // 1000:03d}Z"
 
 
 def parse_time(value: object) -> datetime:
@@ -178,7 +184,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise HTTPError(404, "not_found", "image unavailable or expired")
             data = image.path.read_bytes()
             self._send(200, data, "image/jpeg" if data.startswith(b"\xff\xd8\xff") else "image/png",
-                       {"X-Xcreen-Captured-At": image.timestamp.isoformat()})
+                       {"X-Xcreen-Captured-At": iso_millis(image.timestamp)})
             return None
         if method == "POST" and path == "/v1/capture":
             body = self._payload()

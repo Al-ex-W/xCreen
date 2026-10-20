@@ -36,6 +36,12 @@ public struct ServerStatus: Decodable, Equatable, Sendable {
     }
 }
 
+/// A stored screenshot and its capture time (from `X-Xcreen-Captured-At`).
+public struct ServerImage: Sendable, Equatable {
+    public let data: Data; public let capturedAt: Date?
+    public init(data: Data, capturedAt: Date?) { self.data = data; self.capturedAt = capturedAt }
+}
+
 public struct ServerTurn: Decodable, Equatable, Sendable {
     public let id: String; public let state: String; public let text: String; public let error: String?; public let version: Int; public let done: Bool
 }
@@ -80,7 +86,7 @@ public protocol XCreenServerAPI: Sendable {
     func status() async throws -> ServerStatus
     func uploadOCR(_ items: [OCREvidence]) async throws
     func uploadImage(_ image: EvidenceImage, data: Data) async throws
-    func image(id: String) async throws -> Data
+    func image(id: String) async throws -> ServerImage
     func reportCapture(state: String, reason: String, integrity: Bool) async throws
     func ask(_ question: String) async throws -> ServerTurn
     func turn(id: String, after: Int, waitMilliseconds: Int) async throws -> ServerTurn
@@ -179,6 +185,10 @@ public final class HTTPXCreenServer: XCreenServerAPI, @unchecked Sendable {
     }
 
     private func send(_ method: String, _ path: String, query: [String: String] = [:], json: Any? = nil, body: Data? = nil, contentType: String? = nil, timeout: TimeInterval = 130, authorized: Bool = true) async throws -> Data {
+        try await exchange(method, path, query: query, json: json, body: body, contentType: contentType, timeout: timeout, authorized: authorized).0
+    }
+
+    private func exchange(_ method: String, _ path: String, query: [String: String] = [:], json: Any? = nil, body: Data? = nil, contentType: String? = nil, timeout: TimeInterval = 130, authorized: Bool = true) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url(path, query), timeoutInterval: timeout)
         request.httpMethod = method
         if authorized { request.setValue("Bearer \(endpoint.token)", forHTTPHeaderField: "Authorization") }
@@ -199,7 +209,7 @@ public final class HTTPXCreenServer: XCreenServerAPI, @unchecked Sendable {
             throw ServerAPIError.rejected(status: http.statusCode, code: object?["code"] as? String ?? "http_\(http.statusCode)",
                                           message: object?["message"] as? String ?? "xCreen server returned HTTP \(http.statusCode)")
         }
-        return data
+        return (data, http)
     }
 
     private func object(_ data: Data) throws -> [String: Any] {
@@ -232,7 +242,15 @@ public final class HTTPXCreenServer: XCreenServerAPI, @unchecked Sendable {
         let type = data.starts(with: [0xff, 0xd8, 0xff]) ? "image/jpeg" : "image/png"
         _ = try object(await send("PUT", "v1/images/\(image.id)", query: ["timestamp": Self.iso(image.timestamp)], body: data, contentType: type, timeout: 120))
     }
-    public func image(id: String) async throws -> Data { try await send("GET", "v1/images/\(id)", timeout: 60) }
+    public func image(id: String) async throws -> ServerImage {
+        let (data, response) = try await exchange("GET", "v1/images/\(id)", timeout: 60)
+        return ServerImage(data: data, capturedAt: (response.value(forHTTPHeaderField: "X-Xcreen-Captured-At")).flatMap(Self.parseDate))
+    }
+
+    static func parseDate(_ text: String) -> Date? {
+        let precise = ISO8601DateFormatter(); precise.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return precise.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    }
     public func reportCapture(state: String, reason: String, integrity: Bool) async throws {
         _ = try object(await send("POST", "v1/capture", json: ["capture": state, "reason": reason, "integrity": integrity], timeout: 15))
     }
