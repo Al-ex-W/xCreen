@@ -48,7 +48,7 @@
       "name": "Is there an app that remembers what I did on my screen on a Mac?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "xCreen does. Ask it things like \"What was the error I saw in the build log this morning?\" It reads the foreground window with local Apple Vision OCR and saves a screenshot every 10 active seconds. Ask from the menu-bar tray, the macOS 26+ \"Ask xCreen\" Spotlight action, or xcreen ask in a terminal. Screenshots are kept for seven days, on your Mac or on the server that runs Hermes; short takeaways go into your Obsidian daily notes."
+        "text": "xCreen does. Ask it things like \"What was the error I saw in the build log this morning?\" It screenshots the display you're working on and reads it with local Apple Vision OCR and saves a screenshot every 10 active seconds. Ask from the menu-bar tray, the macOS 26+ \"Ask xCreen\" Spotlight action, or xcreen ask in a terminal. Screenshots are kept for seven days, on your Mac or on the server that runs Hermes; short takeaways go into your Obsidian daily notes."
       }
     },
     {
@@ -96,7 +96,7 @@
       "name": "How is xCreen different from screenpipe?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "xCreen is a Mac app that feeds your Hermes Agent and writes to Obsidian. screenpipe runs on macOS, Windows and Linux, records audio too, and uses a source-available commercial license. screenpipe captures via the Accessibility tree with OCR fallback and can use local or cloud AI. xCreen captures foreground-window screenshots with local Vision OCR, does not record audio, and requires Hermes Agent. Choose screenpipe if you need Windows/Linux or audio. Sources are on the alternatives page."
+        "text": "xCreen is a Mac app that feeds your Hermes Agent and writes to Obsidian. screenpipe runs on macOS, Windows and Linux, records audio too, and uses a source-available commercial license. screenpipe captures via the Accessibility tree with OCR fallback and can use local or cloud AI. xCreen captures screenshots of the display you're working on with local Vision OCR, does not record audio, and requires Hermes Agent. Choose screenpipe if you need Windows/Linux or audio. Sources are on the alternatives page."
       }
     },
     {
@@ -200,7 +200,7 @@
       "name": "How is xCreen different from Pensieve?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Pensieve screenshots all your screens into a local searchable archive with an HTTP API; xCreen captures only the foreground window and works through Hermes Agent. Pensieve runs on macOS and Windows and uses Ollama or OpenAI-compatible models. xCreen deletes raw evidence after 7 days and writes takeaways into Obsidian. Sources on the alternatives page."
+        "text": "Pensieve screenshots all your screens into a local searchable archive with an HTTP API; xCreen captures only the display you're working on (excluded apps removed) and works through Hermes Agent. Pensieve runs on macOS and Windows and uses Ollama or OpenAI-compatible models. xCreen deletes raw evidence after 7 days and writes takeaways into Obsidian. Sources on the alternatives page."
       }
     },
     {
@@ -267,7 +267,7 @@
 
 <h2 id="is-there-an-app-that-remembers-what-i-did-on-my-screen-on-a-mac">Is there an app that remembers what I did on my screen on a Mac?</h2>
 <p><strong>xCreen does. Ask it things like "What was the error I saw in the build log this morning?"</strong></p>
-<p>It reads the foreground window with local Apple Vision OCR and saves a screenshot every 10 active seconds. Ask from the menu-bar tray, the macOS 26+ "Ask xCreen" Spotlight action, or <code>xcreen ask</code> in a terminal. Screenshots are kept for seven days, on your Mac or on the server that runs Hermes; short takeaways go into your Obsidian daily notes.</p>
+<p>It screenshots the display you're working on and reads it with local Apple Vision OCR and saves a screenshot every 10 active seconds. Ask from the menu-bar tray, the macOS 26+ "Ask xCreen" Spotlight action, or <code>xcreen ask</code> in a terminal. Screenshots are kept for seven days, on your Mac or on the server that runs Hermes; short takeaways go into your Obsidian daily notes.</p>
 
 <h2 id="does-xcreen-send-my-screenshots-to-the-cloud">Does xCreen send my screenshots to the cloud?</h2>
 <p><strong>If your Hermes model is a cloud model, yes. OCR is local and storage stays on machines you run, but every 5 active minutes a batch goes to your Hermes provider, and so do your questions.</strong></p>
@@ -291,7 +291,7 @@
 
 <h2 id="how-is-xcreen-different-from-screenpipe">How is xCreen different from screenpipe?</h2>
 <p><strong>xCreen is a Mac app that feeds your Hermes Agent and writes to Obsidian. screenpipe runs on macOS, Windows and Linux, records audio too, and uses a source-available commercial license.</strong></p>
-<p>screenpipe captures via the Accessibility tree with OCR fallback and can use local or cloud AI. xCreen captures foreground-window screenshots with local Vision OCR, does not record audio, and requires Hermes Agent. Choose screenpipe if you need Windows/Linux or audio. Sources are on the <a href="../alternatives/#sources">alternatives page</a>.</p>
+<p>screenpipe captures via the Accessibility tree with OCR fallback and can use local or cloud AI. xCreen captures screenshots of the display you're working on with local Vision OCR, does not record audio, and requires Hermes Agent. Choose screenpipe if you need Windows/Linux or audio. Sources are on the <a href="../alternatives/#sources">alternatives page</a>.</p>
 
 <h2 id="how-is-xcreen-different-from-microsoft-recall">How is xCreen different from Microsoft Recall?</h2>
 <p><strong>Recall is built into Windows 11 Copilot+ PCs and processes snapshots locally. xCreen is an open source Mac app that uses your Hermes provider for inference.</strong></p>
@@ -341,7 +341,7 @@
 <p>xCreen sends batches to your Hermes Agent, which writes only what is worth keeping into your Obsidian daily notes. Dayflow can use local models or Gemini, ChatGPT or Claude. Sources on the <a href="../alternatives/#dayflow">alternatives page</a>.</p>
 
 <h2 id="how-is-xcreen-different-from-pensieve">How is xCreen different from Pensieve?</h2>
-<p><strong>Pensieve screenshots all your screens into a local searchable archive with an HTTP API; xCreen captures only the foreground window and works through Hermes Agent.</strong></p>
+<p><strong>Pensieve screenshots all your screens into a local searchable archive with an HTTP API; xCreen captures only the display you're working on (excluded apps removed) and works through Hermes Agent.</strong></p>
 <p>Pensieve runs on macOS and Windows and uses Ollama or OpenAI-compatible models. xCreen deletes raw evidence after 7 days and writes takeaways into Obsidian. Sources on the <a href="../alternatives/#pensieve">alternatives page</a>.</p>
 
 <h2 id="is-there-an-open-source-screen-memory-app-with-a-local-api-for-mac">Is there an open source screen memory app with a local API for Mac?</h2>

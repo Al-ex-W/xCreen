@@ -6,7 +6,7 @@ This page holds the pipeline and boundary details. For the design, see [client a
 
 When Integrity is explicitly turned OFF and every safety gate permits it:
 
-1. The foreground window is sampled for local Apple Vision OCR at most once per eligible second.
+1. The display holding the focused window is captured at most once per eligible second: every window on it, without the menu bar and the Dock, scaled to at most 2560 px wide. Excluded apps (and xCreen) are removed from the frame; if one of them is in front, nothing is captured. Local Apple Vision OCR reads the frame.
 2. OCR that is ≥90% similar to the last saved snapshot is discarded.
 3. Independent screenshots are saved every ten active seconds.
 4. Each OCR snapshot and screenshot goes into the Mac's private outbox and is uploaded to `xcreen-server` in capture order (OCR ahead of the screenshot that follows it). It leaves the outbox once the server acknowledges it; while the server is unreachable the outbox keeps it, retrying with backoff, for at most seven days.

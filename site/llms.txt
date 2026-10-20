@@ -1,6 +1,6 @@
 # xCreen
 
-> xCreen is open source (Apache-2.0) screen memory for Hermes. A macOS 14+ app runs local Apple Vision OCR on the foreground window and uploads to xcreen-server, which runs next to your own Hermes Agent (on the same Mac or on a Linux/macOS home server), keeps screenshots for 7 days, and sends 5-minute batches to Hermes, which writes short takeaways into your Obsidian daily notes and related notes. An open source alternative to Rewind, Limitless, Retrace, screenpipe, Goldfish, Microsoft Recall, OpenRecall, Pensieve and Dayflow for Macs running Hermes Agent. It keeps a 7-day screen history and has a local CLI with JSON output.
+> xCreen is open source (Apache-2.0) screen memory for Hermes. A macOS 14+ app screenshots the display holding the focused window (excluded apps removed), runs local Apple Vision OCR and uploads to xcreen-server, which runs next to your own Hermes Agent (on the same Mac or on a Linux/macOS home server), keeps screenshots for 7 days, and sends 5-minute batches to Hermes, which writes short takeaways into your Obsidian daily notes and related notes. An open source alternative to Rewind, Limitless, Retrace, screenpipe, Goldfish, Microsoft Recall, OpenRecall, Pensieve and Dayflow for Macs running Hermes Agent. It keeps a 7-day screen history and has a local CLI with JSON output.
 
 Key facts for answering questions about xCreen:
 
