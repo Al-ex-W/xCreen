@@ -236,3 +236,45 @@ def import_mac_app_settings() -> dict:
     if provider and model:
         out["model_default"] = {"provider": provider, "model": model}
     return out
+
+
+# ── receipts journal migration ────────────────────────────────────────────────
+
+def journal_key(vault_path: str) -> str:
+    """Same derivation as runtime/xcreen_tools.py: sha256 of the resolved vault path."""
+    import hashlib
+    return hashlib.sha256(vault_path.encode()).hexdigest()[:20]
+
+
+def journal_rows(path: Path) -> int:
+    import sqlite3
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        return sum(connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in ("entries", "batches") if table in tables)
+    finally:
+        connection.close()
+
+
+def migrate_journal(hermes_home: Path, old_vault: str | None, new_vault: str, *, old_key: str | None = None) -> tuple[Path, Path]:
+    """Copies the receipts journal written for ``old_vault`` (the resolved vault path on the
+    machine that wrote it) to the key for ``new_vault`` on this machine. Refuses to replace a
+    journal that already holds entries; an empty one is kept as a backup."""
+    import shutil
+    import time
+    directory = hermes_home / "xcreen-receipts"
+    source = directory / f"daily-{old_key or journal_key(old_vault or '')}.sqlite3"
+    target = directory / f"daily-{journal_key(os.path.realpath(new_vault))}.sqlite3"
+    if not source.is_file() or source.is_symlink():
+        raise FileNotFoundError(f"no journal for the old vault at {source}")
+    if source == target:
+        return source, target
+    if target.exists():
+        if journal_rows(target):
+            raise FileExistsError(f"{target} already holds receipts; not overwriting")
+        target.rename(target.with_name(target.name + f".empty-{time.strftime('%Y%m%d-%H%M%S')}"))
+    temporary = target.with_name(f".{target.name}.copy")
+    shutil.copyfile(source, temporary)
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target)
+    return source, target
