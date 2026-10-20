@@ -149,6 +149,19 @@ class DigestTests(ServiceTestCase):
             await service.stop()
         run(scenario())
 
+    def test_model_watch_applies_default_on_its_own_timer(self):
+        async def scenario():
+            service = self.service()
+            service.model_check_interval = 0.1
+            await service.set_default_model("openai", "gpt-x")
+            await service.start(connect=False)
+            await service.connection("connect")
+            self.assertFalse(service.controller.model_applied)
+            service.state.set(model_default={"provider": "anthropic", "model": "claude-sonnet-5-5"})
+            await until(lambda: service.controller.model_applied, timeout=5)
+            await service.stop()
+        run(scenario())
+
     def test_pipeline_connecting_itself_still_respects_the_model_gate(self):
         async def scenario():
             service = self.service()
