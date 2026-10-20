@@ -19,6 +19,8 @@ from typing import Awaitable, Callable
 from .errors import Cancelled, DeadlineExceeded, ProtocolError, RemoteFailure, Unavailable
 
 MAX_LINE = 1_048_576
+# Hermes's image.attach_bytes limit per attachment.
+MAX_ATTACHMENT = 8 * 1024 * 1024
 SAFE_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 _PASSTHROUGH = {"HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "TZ", "SHELL", "__CF_USER_TEXT_ENCODING",
                 "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE"}
@@ -361,7 +363,9 @@ class HermesGateway:
             if not await permitted() or not _ATTACHMENT_ID.match(ident):
                 raise Cancelled()
             data = await asyncio.to_thread(Path(path).read_bytes)
-            if not data or len(data) > 8 * 1024 * 1024 or not await permitted():
+            if not data or len(data) > MAX_ATTACHMENT:
+                raise ProtocolError(f"attachment {ident} is {len(data)} bytes; the limit is {MAX_ATTACHMENT}")
+            if not await permitted():
                 raise Cancelled()
             await self.request("image.attach_bytes", {"session_id": session_id, "content_base64": base64.b64encode(data).decode(),
                                                       "filename": attachment_filename(ident, data)})

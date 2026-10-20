@@ -195,6 +195,41 @@ class DigestTests(ServiceTestCase):
             await service.stop()
         run(scenario())
 
+    def test_oversized_screenshot_is_attached_as_a_jpeg_copy(self):
+        class Encoder:
+            name = "fake"
+            async def encode(self, path, quality=None):
+                assert quality == 85
+                return b"\xff\xd8\xff\xe0" + b"\0" * 16
+
+        async def scenario():
+            service = XCreenService(self.config(), encoder=Encoder(), launch_override=self.fake_launch("ok"))
+            service.pipeline.attachment_limit = 40  # every test PNG is larger than this
+            await service.start(connect=False)
+            self.upload(service)
+            await service.report_capture("running", "", False)
+            await until(lambda: service.store.counts()["completed"] == 1)
+            log = [json.loads(line) for line in self.gateway_log.read_text().splitlines()]
+            names = [entry["filename"] for entry in log if entry["method"] == "image.attach_bytes"]
+            self.assertEqual(len(names), BATCH_IMAGES)
+            self.assertTrue(all(name.endswith(".jpg") for name in names))
+            self.assertFalse((service.store.root / ".attach").exists() and any((service.store.root / ".attach").iterdir()))
+            self.assertTrue(all(i.path.suffix == ".png" and i.path.exists() for i in service.store.images))
+            await service.stop()
+        run(scenario())
+
+    def test_oversized_screenshot_without_encoder_fails_clearly_without_resend(self):
+        async def scenario():
+            service = self.service()
+            service.pipeline.attachment_limit = 40
+            await service.start(connect=False)
+            self.upload(service)
+            await service.report_capture("running", "", False)
+            await until(lambda: "JPEG encoder" in service.pipeline.message or service.store.counts()["pending"] == 0)
+            self.assertNotIn("prompt.submit", self.requests())
+            await service.stop()
+        run(scenario())
+
     def test_provider_rate_limit_with_zero_effects_backs_off(self):
         async def scenario():
             service = self.service("429")

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import shutil
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -15,8 +17,8 @@ from pathlib import Path
 
 from . import PROTOCOL, VERSION, prompts
 from .config import ServerConfig, detect_hermes, detect_vault
-from .errors import Cancelled, GatewayError, ProviderFailure, RemoteFailure, Unavailable
-from .gateway import Event, HermesGateway, Launch
+from .errors import Cancelled, GatewayError, ProtocolError, ProviderFailure, RemoteFailure, Unavailable
+from .gateway import MAX_ATTACHMENT, Event, HermesGateway, Launch
 from .images import ImageCompactor, ImageEncoder, default_encoder, describe
 from .session import SessionController, SessionRuntime, StateFile, decode_inventory
 from .store import Batch, Binding, Deferred, EvidenceStore, StoreError, utcnow
@@ -31,7 +33,13 @@ class InvalidRequest(Exception):
 class BatchPipeline:
     """Automatic digests (port of the 1.x app's submit/retry loop)."""
 
-    def __init__(self, store: EvidenceStore, runtime: SessionRuntime, controller: SessionController, allowed):
+    # Quality of the temporary JPEG sent in place of a screenshot too large to attach as is.
+    ATTACHMENT_QUALITY = 85
+
+    def __init__(self, store: EvidenceStore, runtime: SessionRuntime, controller: SessionController, allowed,
+                 encoder: ImageEncoder | None = None):
+        self.encoder = encoder
+        self.attachment_limit = MAX_ATTACHMENT
         self.store = store
         self.runtime = runtime
         self.controller = controller
@@ -62,7 +70,7 @@ class BatchPipeline:
         self.in_flight.add(batch.id)
         try:
             manifest = prompts.batch(batch.id, batch.images, batch.ocr, batch.started_at, batch.completed_at)
-            images = [(i.id, i.path) for i in batch.images]
+            images = await self._attachments(batch)
             log.info("sending batch %s images=%d", batch.id, len(images))
             if not self.controller.connected:
                 try:
@@ -102,11 +110,33 @@ class BatchPipeline:
                                           rate_limited=bool(failure and failure.rate_limited))
             except StoreError:
                 pass
-            self.message = self._summary(exc, self.store.batch_state(batch.id))
+            self.message = f"{self._summary(exc, self.store.batch_state(batch.id))} Cause: {exc}"
             log.warning("batch %s %s", batch.id, self.message)
             self.schedule_retry()
         finally:
             self.in_flight.discard(batch.id)
+            shutil.rmtree(self.store.root / ".attach" / batch.id, ignore_errors=True)
+
+    async def _attachments(self, batch: Batch) -> list[tuple[str, Path]]:
+        """The batch's screenshots as attachments. One larger than Hermes accepts (a 4K PNG can be)
+        is sent as a high-quality JPEG copy; the stored original is untouched."""
+        out: list[tuple[str, Path]] = []
+        for image in batch.images:
+            path = image.path
+            if path.stat().st_size > self.attachment_limit:
+                if self.encoder is None:
+                    raise ProtocolError(f"screenshot {image.id} exceeds the attachment limit and no JPEG encoder is installed")
+                data = await self.encoder.encode(path, quality=self.ATTACHMENT_QUALITY)
+                if len(data) > self.attachment_limit:
+                    raise ProtocolError(f"screenshot {image.id} still exceeds the attachment limit as JPEG")
+                directory = self.store.root / ".attach" / batch.id
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+                path = directory / f"{image.id}.jpg"
+                path.write_bytes(data)
+                os.chmod(path, 0o600)
+                log.info("batch %s: sending %s as a %d-byte JPEG (original over the attachment limit)", batch.id, image.id, len(data))
+            out.append((image.id, path))
+        return out
 
     def schedule_retry(self) -> None:
         if self.retry_task:
@@ -173,7 +203,7 @@ class XCreenService:
         self.compactor = ImageCompactor(self.store, self.encoder)
         # Automatic digests run only with Integrity OFF and the xCreen default model confirmed on the
         # session: never on whatever model the Hermes profile happens to default to.
-        self.pipeline = BatchPipeline(self.store, self.runtime, self.controller, self._digests_allowed)
+        self.pipeline = BatchPipeline(self.store, self.runtime, self.controller, self._digests_allowed, self.encoder)
         status = self.store.capture_status() or {}
         # Fail closed: automatic digests stay blocked until a client reports Integrity OFF.
         self.integrity = status.get("desired_integrity") != "off"

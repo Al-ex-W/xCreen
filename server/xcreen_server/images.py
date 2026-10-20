@@ -25,7 +25,8 @@ class EncodingFailed(Exception):
 class ImageEncoder:
     name = "none"
 
-    async def encode(self, path: Path) -> bytes:  # pragma: no cover - interface
+    async def encode(self, path: Path, quality: int | None = None) -> bytes:  # pragma: no cover - interface
+        """JPEG bytes for ``path``; ``quality`` overrides the encoder's storage quality."""
         raise NotImplementedError
 
 
@@ -46,8 +47,8 @@ class MozJPEGEncoder(ImageEncoder):
                 return cls(resolved)
         return None
 
-    async def encode(self, path: Path) -> bytes:
-        process = await asyncio.create_subprocess_exec(self.executable, "-quality", str(self.quality), str(path),
+    async def encode(self, path: Path, quality: int | None = None) -> bytes:
+        process = await asyncio.create_subprocess_exec(self.executable, "-quality", str(quality or self.quality), str(path),
                                                        stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
                                                        stderr=asyncio.subprocess.DEVNULL, env={})
         try:
@@ -78,20 +79,20 @@ class PillowEncoder(ImageEncoder):
             return None
         return cls(Image)
 
-    def _encode_sync(self, path: Path) -> bytes:
+    def _encode_sync(self, path: Path, quality: int | None = None) -> bytes:
         with self.image_module.open(path) as image:
             image.load()
             rgb = image.convert("RGB")
         out = io.BytesIO()
-        rgb.save(out, "JPEG", quality=self.quality, optimize=True, progressive=True, subsampling=2)
+        rgb.save(out, "JPEG", quality=quality or self.quality, optimize=True, progressive=True, subsampling=2)
         data = out.getvalue()
         if len(data) <= 3 or len(data) > MAX_IMAGE_BYTES or not data.startswith(JPEG_MAGIC):
             raise EncodingFailed("Pillow produced no JPEG")
         return data
 
-    async def encode(self, path: Path) -> bytes:
+    async def encode(self, path: Path, quality: int | None = None) -> bytes:
         try:
-            return await asyncio.to_thread(self._encode_sync, path)
+            return await asyncio.to_thread(self._encode_sync, path, quality)
         except EncodingFailed:
             raise
         except Exception as exc:
@@ -115,12 +116,12 @@ class NetpbmCjpegEncoder(ImageEncoder):
                 return cls(decoder, encoder)
         return None
 
-    async def encode(self, path: Path) -> bytes:
+    async def encode(self, path: Path, quality: int | None = None) -> bytes:
         read, write = os.pipe()
         try:
             decode = await asyncio.create_subprocess_exec(self.decoder, str(path), stdin=asyncio.subprocess.DEVNULL, stdout=write,
                                                           stderr=asyncio.subprocess.DEVNULL, env={})
-            encode = await asyncio.create_subprocess_exec(self.encoder, "-quality", str(self.quality), "-optimize", stdin=read,
+            encode = await asyncio.create_subprocess_exec(self.encoder, "-quality", str(quality or self.quality), "-optimize", stdin=read,
                                                           stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, env={})
         finally:
             os.close(read)
