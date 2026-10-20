@@ -118,7 +118,8 @@ class UploadTests(APITestCase):
         self.assertEqual((status, data), (200, png()))
         request = urllib.request.Request(self.base + "/v1/images/image-1", headers={"Authorization": f"Bearer {TOKEN}"})
         with urllib.request.urlopen(request, timeout=10) as response:
-            self.assertTrue(response.headers["X-Xcreen-Captured-At"].startswith(now().strftime("%Y-%m-%d")[:4]))
+            header = response.headers["X-Xcreen-Captured-At"]
+            self.assertRegex(header, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
         self.assertEqual(self.call("GET", "/v1/images/image-2")[0], 404)
         self.assertEqual(self.call("GET", "/v1/nothing")[0], 404)
         self.assertEqual(self.call("GET", "/v1/images/..%2Fetc")[0], 404)
