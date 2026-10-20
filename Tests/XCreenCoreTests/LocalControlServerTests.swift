@@ -25,7 +25,7 @@ for frame,expected in [(b'{"command":"status"}\\n',True),(b'bad\\n',False)]:
         assert result['ok'] == expected, result
         if expected: assert result['snapshot']['integrity'] is True
 """, root.appendingPathComponent("control.sock").path]
-        try process.run(); process.waitUntilExit()
+        try process.run(); XCTAssertTrue(process.waitUntilExit(timeout: 30), "client script did not finish")
         XCTAssertEqual(process.terminationStatus, 0)
     }
 
