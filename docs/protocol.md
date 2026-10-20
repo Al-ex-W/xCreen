@@ -45,7 +45,7 @@ Every 30th image completes a batch (images and the OCR captured up to the last o
 
 ### `GET /v1/images/{id}`
 
-The stored image (`image/png`, or `image/jpeg` once recompressed after its digest). Used for screenshots cited in answers (`xcreen-image:<id>`).
+The stored image (`image/png`, or `image/jpeg` once recompressed after its digest), with its capture time in `X-Xcreen-Captured-At`. Used for screenshots cited in answers (`xcreen-image:<id>`).
 
 ### `POST /v1/capture`
 
@@ -69,9 +69,11 @@ Reports capture state and the Integrity switch. Sent immediately on every change
   "integrity": false, "capture": "running", "capture_reason": "", "client_seen": "…",
   "batches": {"pending": 0, "submitting": 0, "admitted": 0, "completed": 12, "uncertain": 0, "deadletter": 0},
   "unbatched": {"images": 7, "ocr": 40}, "latest": {"image": "…", "ocr": "…"},
-  "next_retry": null, "message": "", "vault": true, "compression": "mozjpeg (…, quality 30)", "active_turn": null
+  "next_retry": null, "message": "", "digest_hold": "", "vault": true, "compression": "mozjpeg (…, quality 30)", "active_turn": null
 }}
 ```
+
+`digest_hold` is empty while automatic batches run, otherwise the reason they wait: Integrity ON (or no client has reported yet), or the xCreen default model isn't applied to the session. The server re-checks the model inventory every five minutes and resumes on its own.
 
 ## Questions
 

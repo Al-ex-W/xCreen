@@ -1,5 +1,7 @@
 # Integration contract between native evidence and chat
 
+> Since 2.0 the session runtime, batch state machine and receipts described here run in `xcreen-server` (Python), ported with the same behavior; the Mac app captures, uploads and forwards commands to it. See [client and server](client-server.md).
+
 These are internal Swift APIs to implement now, not claims of current capability. Coordinate via this file and actual core source. Native store avoids a Python dependency for capture.
 
 ## Capture owner

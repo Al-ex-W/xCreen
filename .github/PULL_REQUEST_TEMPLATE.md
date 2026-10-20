@@ -10,6 +10,7 @@
 
 - [ ] `swift test`
 - [ ] `python3 -m unittest discover -s bridge/tests -v`
+- [ ] `(cd server && python3 -m unittest discover -s tests -t . -v)`
 - [ ] `bash scripts/build-app.sh`
 - [ ] Other (runtime tests, manual on-device checks), described below:
 

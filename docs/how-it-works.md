@@ -1,6 +1,6 @@
 # How xCreen works
 
-This page holds the pipeline and boundary details. For the design, see [architecture](architecture.md); for the commands, see the [CLI reference](cli.md).
+This page holds the pipeline and boundary details. For the design, see [client and server](client-server.md) and [architecture](architecture.md); for the commands, see the [CLI reference](cli.md).
 
 ## Capture pipeline
 
@@ -9,14 +9,15 @@ When Integrity is explicitly turned OFF and every safety gate permits it:
 1. The foreground window is sampled for local Apple Vision OCR at most once per eligible second.
 2. OCR that is ≥90% similar to the last saved snapshot is discarded.
 3. Independent screenshots are saved every ten active seconds.
-4. Five active minutes (or 30 images) form a durable batch, sent with timestamp/ID binding to the same dedicated xCreen Hermes session.
-5. Private evidence files stay outside the vault (under `~/Library/Application Support/xCreen`) and expire after seven days. No forensic-erasure or database-encryption claim is made; use FileVault.
+4. Each OCR snapshot and screenshot goes into the Mac's private outbox and is uploaded to `xcreen-server` in capture order (OCR ahead of the screenshot that follows it). It leaves the outbox once the server acknowledges it; while the server is unreachable the outbox keeps it, retrying with backoff, for at most seven days.
+5. On the server, every 30 screenshots (five active minutes) and the OCR captured up to the last of them form a durable batch, sent with timestamp/ID binding to the same dedicated xCreen Hermes session, but only while Integrity is OFF and the xCreen default model is applied.
+6. Evidence stays outside the vault (on the server: `~/Library/Application Support/xCreen/Evidence` on a Mac, `~/.local/share/xcreen/evidence` on Linux) and expires after seven days. Screenshots are recompressed to JPEG once their batch has a verified completed digest. No forensic-erasure or database-encryption claim is made; use FileVault or disk encryption.
 
 Integrity defaults ON and the user's explicitly chosen value is preserved across restart. Only explicit tray/CLI actions change it. Lock, sleep, exclusions, missing permissions and errors suspend capture without rewriting that choice.
 
 ## Hermes runtime and tools
 
-The bundled Hermes runtime registers only the scoped xCreen tools:
+`xcreen-server` starts the Hermes runtime shipped with it (`runtime/xcreen_gateway.py`, on Hermes's own Python), which registers only the scoped xCreen tools:
 
 - latest/range OCR listing and timestamped coverage status
 - OCR search and nearby image lookup
