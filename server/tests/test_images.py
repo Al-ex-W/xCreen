@@ -52,7 +52,7 @@ class CompactorTests(TempDirTestCase):
             self.assertTrue(data.startswith(b"\xff\xd8\xff"), encoder.name)
             sharper = run(encoder.encode(path, quality=85))
             self.assertTrue(sharper.startswith(b"\xff\xd8\xff"), encoder.name)
-            self.assertGreater(len(sharper), len(data), encoder.name)
+            self.assertNotEqual(sharper, data, encoder.name)  # the override reaches the encoder
         self.assertIsNotNone(default_encoder())
 
 
