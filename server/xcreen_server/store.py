@@ -30,6 +30,7 @@ MAX_OCR_CHARS = 12_000
 BATCH_IMAGES = 30
 MAX_PROVIDER_ATTEMPTS = 6
 _ID = re.compile(r"^[A-Za-z0-9-]{1,100}$")
+_FILE_NAME = re.compile(r"^[0-9T:.Z-]{1,40}_[A-Za-z0-9-]{1,100}\.(png|jpg)$")
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 JPEG_MAGIC = b"\xff\xd8\xff"
 
@@ -242,11 +243,12 @@ class EvidenceStore:
         url = urlsplit(obj["fileURL"])
         if url.scheme != "file" or url.netloc not in ("", "localhost"):
             raise StoreError("invalid image URL in index")
-        path = Path(unquote(url.path))
-        if not self._confined(path, self.images_dir):
-            raise StoreError("image outside the evidence store")
-        # Re-anchor under the resolved images directory so stored URLs stay readable by the runtime.
-        return Image(obj["id"], from_apple(obj["timestamp"]), self.images_dir / path.name)
+        # Always re-anchor by file name under this store's images/: a store copied from another
+        # machine (or the 1.x app) keeps working, and no index entry can point outside it.
+        name = Path(unquote(url.path)).name
+        if not _FILE_NAME.match(name):
+            raise StoreError("invalid image file name in index")
+        return Image(obj["id"], from_apple(obj["timestamp"]), self.images_dir / name)
 
     @staticmethod
     def _ocr(obj: dict) -> OCR:
