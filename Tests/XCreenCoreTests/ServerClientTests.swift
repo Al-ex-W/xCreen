@@ -139,7 +139,7 @@ final class ServerContractTests: XCTestCase {
     private var directory: URL!
 
     override func tearDown() {
-        process?.terminate(); process?.waitUntilExit()
+        process?.terminate(); process?.waitUntilExit(timeout: 5)
         if let directory { try? FileManager.default.removeItem(at: directory) }
         super.tearDown()
     }
@@ -151,7 +151,7 @@ final class ServerContractTests: XCTestCase {
         for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate) {
             let probe = Process(); probe.executableURL = URL(fileURLWithPath: candidate)
             probe.arguments = ["-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"]
-            if (try? probe.run()) != nil { probe.waitUntilExit(); if probe.terminationStatus == 0 { return candidate } }
+            if (try? probe.run()) != nil, probe.waitUntilExit(timeout: 10), probe.terminationStatus == 0 { return candidate }
         }
         return nil
     }
@@ -178,7 +178,7 @@ final class ServerContractTests: XCTestCase {
             try child.run(); return child
         }
         let initialize = try run(["init", "--bind", "127.0.0.1", "--port", String(port), "--data-dir", directory.appendingPathComponent("evidence").path, "--no-detect"])
-        initialize.waitUntilExit()
+        XCTAssertTrue(initialize.waitUntilExit(timeout: 30), "xcreen-server init did not finish")
         XCTAssertEqual(initialize.terminationStatus, 0)
         let token = try String(contentsOf: directory.appendingPathComponent("server.token"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         process = try run(["serve"])

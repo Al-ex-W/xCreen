@@ -30,7 +30,9 @@ jobs:
       - run: python3 -m unittest discover -s tests -t . -v
         working-directory: server
       - run: python3 -m unittest discover -s Tests -p '*_test.py' -v
+      # A hung test should fail in minutes, not run into the 20-minute job limit.
       - run: swift test
+        timeout-minutes: 8
       - run: bash scripts/build-app.sh
 
   # The server also runs next to Hermes on Linux (e.g. a Debian VM); test it there on every
