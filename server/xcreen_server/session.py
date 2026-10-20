@@ -670,6 +670,19 @@ class SessionController:
             self.model_status = f"Switch to {provider} · {model} failed: {exc}"
             return inventory
 
+    async def refresh_model(self) -> bool:
+        """Re-reads the live inventory and applies the xCreen default if it has become available
+        (e.g. a provider was added to Hermes). Returns whether the default is applied."""
+        async with self.lock:
+            if not self.connected or self.model_applied:
+                return self.model_applied
+            token = self.generation
+            inventory = await self.runtime.model_options()
+            if token != self.generation:
+                return False
+            self.inventory = await self._apply_model_preference(inventory, token)
+            return self.model_applied
+
     async def history_page(self, cursor: str | None) -> dict:
         async with self.lock:
             await self._connect()

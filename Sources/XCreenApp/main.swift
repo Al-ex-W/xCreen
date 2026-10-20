@@ -161,6 +161,7 @@ import XCreenUI
     var status: String {
         guard server != nil else { return "No server configured · set the server URL and token in Settings" }
         guard serverReachable else { return "Server unreachable · capture keeps queuing locally" }
+        if connected, let hold = serverStatus?.digestHold, !hold.isEmpty, !integrity { return "Server \(serverStatus?.version ?? "") · digests on hold · \(hold)" }
         if connected { return "Server \(serverStatus?.version ?? "") · Hermes connected · xCreen session" }
         return "Server reachable · Hermes disconnected"
     }
