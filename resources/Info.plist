@@ -14,4 +14,11 @@
 <key>CFBundleURLName</key><string>dev.xcreen.ask</string>
 <key>CFBundleURLSchemes</key><array><string>xcreen</string></array>
 </dict></array>
+<!-- The app talks only to the xCreen server the user configured. ATS can't express "private
+     networks and Tailscale (100.64.0.0/10)", so it is off here and ServerEndpoint.validate enforces
+     the policy instead: plain HTTP only to loopback, RFC 1918, Tailscale and *.ts.net / *.local hosts;
+     everything else must use HTTPS. -->
+<key>NSAppTransportSecurity</key><dict>
+<key>NSAllowsArbitraryLoads</key><true/>
+</dict>
 </dict></plist>
