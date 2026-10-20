@@ -9,8 +9,8 @@ authors:
 repository-code: "https://github.com/Al-ex-W/xCreen"
 url: "https://al-ex-w.github.io/xCreen/"
 license: Apache-2.0
-version: "1.0.0"
-date-released: "2026-10-18"
+version: "2.0.0"
+date-released: "2026-10-20"
 keywords:
   - screen memory
   - macOS

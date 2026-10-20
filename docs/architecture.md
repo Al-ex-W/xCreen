@@ -1,35 +1,38 @@
 # xCreen architecture
 
-## One owner, two surfaces
+## Two programs, one contract
 
 ```text
-tray controls / xcreen://ask handoff          standalone xcreen CLI
-              |                                  |
-              |                     private same-UID Unix socket
-              +--------------> MainActor AppState.control
-                                  |       |       |
-                             capture   settings   HermesSessionRuntime
-                                |                 |
-                          EvidenceStore      one dedicated persisted session
-                                |                 |
-                          scoped xCreen tools <--- bundled Python gateway
+ Mac app (Swift)                                        xcreen-server (Python, next to Hermes)
+ tray · xcreen://ask · Spotlight   xcreen CLI
+        |                             |                 HTTP /v1 + bearer token (docs/protocol.md)
+        |          private same-UID Unix socket          |
+        +------> MainActor AppState.control ------------+-->  XCreenService facade
+                    |            |                          |        |          |
+                 capture      Uploader --- outbox ---->  EvidenceStore  BatchPipeline  SessionController
+                    |                                       |                      |
+               Vision OCR                          index.json + images     SessionRuntime (turn queue)
+                                                            |                      |
+                                                  scoped xCreen tools <--- runtime/xcreen_gateway.py (Hermes)
 ```
 
-The running app owns settings, connection, capture consent, model selection and chat. The CLI is a state-free client, not a second preferences/session implementation. Native UI and IPC requests share `AppState` and its `SharedSessionController`: a FIFO lifecycle gate spans persistence/detection, disconnect/connect, model reads/changes and history RPCs, with frozen launch settings. A separate ordered lane retains every Integrity transition value. UI and runtime subscriptions reject old connection generations. Published state makes CLI mutations visible in the tray without reopening it. The model picker does not reactively resubmit changes when CLI/session-info updates arrive.
+The Mac app owns capture consent (Integrity), capture, the upload outbox, the server URL/token and the tray. `xcreen-server` owns everything that talks to Hermes: the evidence store, batch formation and state, the dedicated session, model selection and default, visibility, history, receipts and settings. The complete install runs the server on the same Mac; the split install runs it on another machine. Both use identical code; see [client and server](client-server.md) for the decision and [protocol](protocol.md) for the contract.
 
-`LocalControlServer` acquires a private lifetime lock before AppState is constructed. Its Unix socket lives in a UID-owned 0700 directory, has mode 0600, verifies same-UID peers and accepts bounded newline JSON with framing/output/handler deadlines and an eight-client cap. The client also checks ownership/type/mode and peer UID. No network listener is exposed. This is same-user trust, not protection from malicious same-UID software. See [CLI parity and protocol](cli-parity.md).
+The CLI is a state-free client of the app, not a second preferences/session implementation. The app forwards Hermes-facing commands to the server through `XCreenServerAPI`; on the server, `SessionController` serializes lifecycle operations (connect, model reads/changes, visibility, verify, history) FIFO, while Integrity changes take a separate path so a slow connection can't delay a pause. Old connection generations are rejected throughout.
+
+`LocalControlServer` acquires a private lifetime lock before AppState is constructed. Its Unix socket lives in a UID-owned 0700 directory, has mode 0600, verifies same-UID peers and accepts bounded newline JSON with framing/output/handler deadlines and an eight-client cap. The client also checks ownership/type/mode and peer UID. The app exposes no network listener; the server's HTTP listener binds a specific address (never `0.0.0.0`) and requires the bearer token. The socket is same-user trust, not protection from malicious same-UID software. See [CLI parity and protocol](cli-parity.md).
 
 ## Evidence pipeline
 
 Integrity defaults ON when no user preference exists and otherwise preserves that preference across launch. Only explicit user actions mutate it; actual capture safety is a separate blocked/running state. It stops screenshot/OCR work and automatic transmissions, rejects stale capture generations and cancels automatic work; manual historical questions remain permitted. OFF is explicit consent through the same real capture service, with macOS Screen Recording permission and current-session gates. Session compatibility eligibility requires a present dictionary, strict true public console/login values, an absent-or-strict-false undocumented lock hint, and resolvable non-security foreground. Nil dictionaries, malformed values and independent lifecycle vetoes block. This is not universal unlock proof; see [session research](macos-session-research.md). Notification transitions run synchronously on the main queue, revoke the persistence epoch on both block and restore, and clear only their own veto. Recovery requires a fresh metadata evaluation on the existing one-second loop and before/after acquisition; a wake alone cannot clear lock. Previously observed lock/sleep vetoes stay latched until their respective resume event (lost resume notifications can therefore leave capture paused). Startup has no independent synchronous sleep-state oracle; actual lock/sleep transitions require separate device validation. Identical pause reasons are logged only on status transitions, without weakening revocation or checkpoint guards.
 
-Eligible foreground-window temporary pixels feed local Vision OCR at most once per active second. OCR >=90% similar to the last saved sample is discarded. Independent PNGs are saved every ten active seconds. Thirty images / five active minutes create a durable chronological batch with timestamp/ID binding and OCR changes. Excluded applications, pauses, sleep and failures do not advance the clock, manufacture frames or create catch-up bursts. Browsers are eligible; password fields, password-manager extensions/popovers and incognito/private windows are not detected or redacted. No universal password/login protection is guaranteed; use Integrity ON for sensitive browsing (see SECURITY.md).
+Eligible foreground-window temporary pixels feed local Vision OCR at most once per active second. OCR >=90% similar to the last saved sample is discarded. Independent PNGs are saved every ten active seconds into the Mac's outbox and uploaded in capture order; the server forms a durable chronological batch from every thirty images (five active minutes) and the OCR changes up to the last of them, with timestamp/ID binding. Excluded applications, pauses, sleep and failures do not advance the clock, manufacture frames or create catch-up bursts. Browsers are eligible; password fields, password-manager extensions/popovers and incognito/private windows are not detected or redacted. No universal password/login protection is guaranteed; use Integrity ON for sensitive browsing (see SECURITY.md).
 
-`EvidenceStore` maintains independent bounded raw files, a JSON index and batch/checkpoint metadata outside the vault. Private directories/files use 0700/0600. Startup, periodic maintenance and queries apply seven-day expiry, removing derived references as well. This is neither database encryption nor forensic/backup erasure. Recommend FileVault. The retained independent Python bridge has SQLite/FTS behavior but is not the live native store.
+On the Mac, the outbox (`EvidenceStore`, Swift) keeps captured files and the active-window checkpoint only until the server acknowledges them. On the server, `EvidenceStore` (Python) maintains independent bounded raw files, a JSON index in the 1.x format (read unchanged by the scoped tools) and batch metadata outside the vault. Private directories/files use 0700/0600. Startup, periodic maintenance and queries apply seven-day expiry, removing derived references as well. This is neither database encryption nor forensic/backup erasure. Recommend FileVault. The retained independent Python bridge has SQLite/FTS behavior but is not the live native store.
 
 ## Hermes transport and session
 
-The bundled Python bootstrap registers only the six scoped xCreen tools and starts Hermes's raw `tui_gateway`. Hermes remains the authority for auth, personal/project rules and configured models. No auth copy, configuration mutation, profile creation or attachment to another live conversation is allowed.
+This section describes `xcreen-server` (`server/xcreen_server/gateway.py`, `session.py`), ported from the 1.x app's Swift `HermesGateway`/`HermesSessionRuntime`/`SharedSessionController` with the same behavior. The server starts the Python bootstrap shipped with it, which registers only the scoped xCreen tools and starts Hermes's raw `tui_gateway`. Hermes remains the authority for auth, personal/project rules and configured models. No auth copy, configuration mutation, profile creation or attachment to another live conversation is allowed.
 
 `HermesSessionRuntime` resumes the exact stored xCreen identity; all manual/automatic submits, model changes and compression share that session owner. Terminal events, not admission acknowledgments, finish a turn and return its own collected output. Manual work has priority and a per-question identity reserved before connection/task admission. Cancel removes that queued question or interrupts only its matching current turn. Integrity invalidates queued automatic turns and cancels an active automatic turn; a later OFF does not restore an invalidated epoch. Transmission checks bind both epoch and turn identity. Disconnect fails outstanding/queued turns before replacement; observer EOF is generation-bound. Compaction reserves incoming/output headroom and triggers at 500k context tokens or earlier for a smaller usable window; it is lossy summary, not eternal exact recall.
 
@@ -43,9 +46,9 @@ Assistant `xcreen-image:<id>` references are resolved only through the evidence 
 
 ## Delivery and testing
 
-The installer copies the standalone CLI and bundles the runtime, so installed operation does not depend on a checkout symlink. The app is not notarized or security-audited. `xcreen://ask`/`xcreen://open` and the macOS 26+ App Intents (exposed to Spotlight through an `AppShortcutsProvider`) open/fill input without submission; a URL that cold-launches the app is buffered until the tray exists. `scripts/build-app.sh` runs Xcode's `appintentsmetadataprocessor` on SwiftPM's `.swiftconstvalues` and `scripts/check-appintents-metadata.py` fails the build if the action or App Shortcuts are missing. Arbitrary live Spotlight interception/ranking is not claimed.
+The installers copy the standalone CLI, the server package and the Hermes runtime out of the checkout, so installed operation does not depend on it. The app is not notarized or security-audited. `xcreen://ask`/`xcreen://open` and the macOS 26+ App Intents (exposed to Spotlight through an `AppShortcutsProvider`) open/fill input without submission; a URL that cold-launches the app is buffered until the tray exists. `scripts/build-app.sh` runs Xcode's `appintentsmetadataprocessor` on SwiftPM's `.swiftconstvalues` and `scripts/check-appintents-metadata.py` fails the build if the action or App Shortcuts are missing. Arbitrary live Spotlight interception/ranking is not claimed.
 
-Synthetic tests cover storage, capture policy, fake-gateway sessions, history RPC and real local IPC/client credentials. Separate user-authorized on-device checks remain for TCC, capture, lock/sleep transitions, OCR quality, provider inference, live vault writes and Spotlight discovery. Protocol tests alone do not validate every AppKit action.
+Synthetic tests cover the outbox, capture policy and local IPC (Swift); the store, batch state machine, session runtime, pipeline and HTTP API against a fake stdio gateway (Python, on macOS and Linux with Python 3.10-3.13); and a contract test that runs the real Python server against the real Swift client. Separate user-authorized on-device checks remain for TCC, capture, lock/sleep transitions, OCR quality, provider inference, live vault writes and Spotlight discovery. Protocol tests alone do not validate every AppKit action.
 
 ## References
 

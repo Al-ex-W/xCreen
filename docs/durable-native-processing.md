@@ -1,5 +1,7 @@
 # Durable native processing and host receipts
 
+> Since 2.0 the session runtime, batch state machine and receipts described here run in `xcreen-server` (Python), ported with the same behavior; the Mac app captures, uploads and forwards commands to it. See [client and server](client-server.md).
+
 The native automatic queue now integrates host-issued immutable batch preparation, explicit model batch results, and read-back-verified note effect receipts. See [the exact RPC contract](runtime-receipts.md). This is crash fencing and reconciliation, **not exactly-once inference**.
 
 ## Submission and completion

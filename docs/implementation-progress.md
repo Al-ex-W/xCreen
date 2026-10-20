@@ -3,6 +3,14 @@
 What is implemented, what is verified, and what still needs an on-device run.
 This file contains no observations, vault content, Hermes configuration or model replies.
 
+## 2.0: client and server
+
+Implemented: the capture app with outbox and uploader, `xcreen-server` (store, batching, session runtime, pipeline, HTTP API, compaction strategies, journal migration), complete and split installers, protocol v1. Tested: Swift suite, Python server suite on macOS and on Linux with Python 3.10-3.14, and a client/server contract test.
+
+Verified in a real split deployment (2026-10-20): Mac client to a Debian 13 VM over Tailscale; systemd user service; token auth (401 without it); a 1.x evidence store (6,873 images, 228 batches) and receipts journal moved to the server, with every batch state reconciled from receipts and no resend; resuming the existing Hermes session; uploads draining from the outbox; digests held while the xCreen default model was missing from the server's Hermes inventory; JPEG compaction with libjpeg-turbo.
+
+Not yet verified on the server: automatic digests and questions with a configured provider, and note writes into the server's vault.
+
 ## Pipeline
 
 ```

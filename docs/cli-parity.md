@@ -1,5 +1,7 @@
 # CLI / tray parity and local-control contract
 
+> Since 2.0 the session runtime, batch state machine and receipts described here run in `xcreen-server` (Python), ported with the same behavior; the Mac app captures, uploads and forwards commands to it. See [client and server](client-server.md).
+
 The app is authoritative. `bin/xcreen` is a standalone Python 3 client, installed by copying rather than symlinking. It never writes app preferences or Hermes records. Native `AppState.control` runs on the main actor; its `SharedSessionController` is also used by tray settings and Integrity changes. The controller owns FIFO lifecycle transactions across awaits and a separate ordered Integrity lane. The capture service remains native and app-owned.
 
 | Action | Tray / native behavior | CLI |

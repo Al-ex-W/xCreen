@@ -10,10 +10,13 @@ What's planned next. Nothing here is available yet.
    - `coverage`: when capture was running or paused
    - `ask`: a question to the xCreen session in your Hermes Agent
 
-   Read-only: it will not change Integrity, settings or notes. Tracking issue: https://github.com/Al-ex-W/xCreen/issues/1
+   Read-only: it will not change Integrity, settings or notes. With 2.0 this belongs in `xcreen-server`, next to the evidence. Tracking issue: https://github.com/Al-ex-W/xCreen/issues/1
 2. **Notarized release.** The app isn't notarized today, so macOS asks you to approve it on first open ([INSTALL.md](../INSTALL.md)).
 
 ## Available today
+
+- **Hermes on a server** (2.0): run `xcreen-server` next to Hermes on a home server or VM and point the Mac at it, typically over Tailscale. See [client and server](client-server.md).
+
 
 The `xcreen` CLI with `--json` output is the local interface: [docs/cli.md](cli.md) · [CLI page](https://al-ex-w.github.io/xCreen/cli/).
 

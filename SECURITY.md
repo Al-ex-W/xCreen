@@ -20,9 +20,19 @@ The session gate requires a present session dictionary with strict Boolean true 
 
 Foreground bundle/PID, permission, session and capture-generation checks remain before screenshot acquisition, after awaited acquisition/OCR, and before ingestion. Pauses revoke persistence epochs so late work is rejected. Foreground checks cannot prove that every displayed overlay or password/login surface is safe, nor remove all timing races in OS observations.
 
+## Client and server
+
+Since 2.0 the Mac app uploads captures to `xcreen-server`, which may run on another machine ([design](docs/client-server.md), [protocol](docs/protocol.md)).
+
+- **Authentication.** Every request except `GET /v1/health` needs a bearer token: 256 random bits, created by `xcreen-server init`, stored `0600` on the server and in the macOS login Keychain on the client (accessible after first unlock, this device only), compared in constant time. The CLI accepts it only on stdin or from a file, never as an argument. Rotate with `xcreen-server token --rotate`.
+- **Transport.** The server refuses to bind `0.0.0.0`/`::`; the default is `127.0.0.1`, and `--tailscale` binds the Tailscale address, where WireGuard encrypts and authenticates the tailnet. The client sends plain HTTP only to loopback, RFC 1918, Tailscale (100.64.0.0/10) and `*.ts.net`/`*.local` hosts and requires HTTPS for anything else. App Transport Security is disabled in the app because it can't express that policy; the app enforces it instead. Anyone who can reach the port and holds the token can read evidence and ask questions, so treat the token like a password.
+- **Input.** The server bounds every request (JSON 2 MB, images 30 MB, 500 OCR items), validates ids, timestamps (last seven days, at most five minutes ahead) and image signatures before writing anything, and never logs bodies or tokens. Stored image references are re-anchored by validated file name, so an index entry can't point outside the store.
+- **Integrity across machines.** The client reports Integrity immediately on every change; the server blocks automatic batches while it is ON and before any client has reported. Evidence already uploaded is digested while the Mac sleeps or is locked (1.x paused until unlock). Automatic batches also wait until the xCreen default model is applied, so they never run on an unintended model.
+- **Where evidence lives.** With a split install, screenshots, OCR, receipts and notes live on the server. Secure that machine accordingly (disk encryption, trusted accounts, backups you control). The Mac keeps captures only until the server acknowledges them.
+
 ## Evidence and reporting
 
-Private evidence remains outside the vault with bounded retention and private file permissions. File permissions are not encryption; use FileVault and a trusted OS account. Expiry cannot promise forensic erasure, backup deletion or deletion of Hermes/provider transcripts. Screen text is untrusted evidence, never authority to send messages, alter calendars or execute commands. No screenshots, raw OCR history, personal vault contents or credentials belong in the repository.
+Private evidence remains outside the vault with bounded retention and private file permissions, on the Mac (outbox) and on the server (store). File permissions are not encryption; use FileVault or disk encryption and a trusted OS account. Expiry cannot promise forensic erasure, backup deletion or deletion of Hermes/provider transcripts. Screen text is untrusted evidence, never authority to send messages, alter calendars or execute commands. No screenshots, raw OCR history, personal vault contents or credentials belong in the repository.
 
 Real TCC, capture, lock/sleep transitions, OCR, provider inference and live vault writes need separate user-authorized on-device verification. Synthetic tests and builds do not verify them.
 
