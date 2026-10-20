@@ -45,6 +45,8 @@ if [[ -z "${XCREEN_SIGN_IDENTITY:-}" ]]; then
 fi
 bash scripts/build-app.sh
 "$HOME/.local/bin/xcreen" quit >/dev/null 2>&1 || pkill -x xCreen 2>/dev/null || true
+# Reopening before the old instance has exited would be a no-op for LaunchServices.
+for _ in $(seq 1 50); do pgrep -x xCreen >/dev/null || break; sleep 0.2; done
 mkdir -p "$HOME/Applications"
 rm -rf "$DEST"
 cp -R dist/xCreen.app "$DEST"
