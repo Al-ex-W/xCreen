@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from . import PROTOCOL, VERSION
-from .config import ServerConfig, create_token, detect_hermes, detect_vault, import_mac_app_settings, load_token
+from .config import ServerConfig, create_token, detect_hermes, detect_vault, import_mac_app_settings, load_token, migrate_journal
 
 
 def _configure_logging(config: ServerConfig, verbose: bool) -> None:
@@ -120,6 +120,30 @@ def cmd_doctor(args) -> int:
     return 0 if all(checks) else 1
 
 
+def cmd_migrate_journal(args) -> int:
+    """Moving to another machine changes the vault's path, and the receipts journal is keyed by it."""
+    config = ServerConfig.load(args.config)
+    if not config.vault:
+        print("no vault configured", file=sys.stderr)
+        return 2
+    import urllib.request
+    try:
+        urllib.request.urlopen(f"http://{config.bind}:{config.port}/v1/health", timeout=2)
+        print("stop xcreen-server first (systemctl --user stop xcreen-server / launchctl bootout)", file=sys.stderr)
+        return 2
+    except OSError:
+        pass
+    home = Path(args.hermes_home or os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
+    try:
+        source, target = migrate_journal(home, args.from_vault, config.vault, old_key=args.from_key)
+    except (OSError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"receipts journal {source.name} -> {target.name}")
+    print("start the server, then run: xcreen verify   (restores completed batches from their receipts)")
+    return 0
+
+
 def cmd_serve(args) -> int:
     config = ServerConfig.load(args.config)
     _configure_logging(config, args.verbose)
@@ -172,6 +196,12 @@ def main(argv=None) -> int:
     token.set_defaults(func=cmd_token)
     doctor = sub.add_parser("doctor", help="check the installation")
     doctor.set_defaults(func=cmd_doctor)
+    journal = sub.add_parser("migrate-journal", help="carry the receipts journal over after the vault path changed")
+    source = journal.add_mutually_exclusive_group(required=True)
+    source.add_argument("--from-vault", help="the vault's resolved path on the old machine")
+    source.add_argument("--from-key", help="the old journal key (daily-<key>.sqlite3)")
+    journal.add_argument("--hermes-home")
+    journal.set_defaults(func=cmd_migrate_journal)
     config = sub.add_parser("config", help="show or change settings")
     config.add_argument("assignments", nargs="*", metavar="KEY=VALUE")
     config.set_defaults(func=cmd_config)
