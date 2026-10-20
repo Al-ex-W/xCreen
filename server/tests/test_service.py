@@ -213,7 +213,8 @@ class DigestTests(ServiceTestCase):
             names = [entry["filename"] for entry in log if entry["method"] == "image.attach_bytes"]
             self.assertEqual(len(names), BATCH_IMAGES)
             self.assertTrue(all(name.endswith(".jpg") for name in names))
-            self.assertFalse((service.store.root / ".attach").exists() and any((service.store.root / ".attach").iterdir()))
+            attach = service.store.root / ".attach"
+            await until(lambda: not attach.exists() or not any(attach.iterdir()))  # cleaned up right after the send
             self.assertTrue(all(i.path.suffix == ".png" and i.path.exists() for i in service.store.images))
             await service.stop()
         run(scenario())
