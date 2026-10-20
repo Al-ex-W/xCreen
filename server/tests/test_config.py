@@ -47,6 +47,23 @@ class ConfigTests(TempDirTestCase):
         self.assertEqual(parse_obsidian_vaults(json.dumps(listing)), str(daily))
 
 
+class InitCommandTests(TempDirTestCase):
+    def test_init_writes_config_token_and_session_without_detection(self):
+        from xcreen_server.__main__ import main
+        import contextlib, io, json
+        config_path = self.tmp / "server.json"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["--config", str(config_path), "init", "--no-detect", "--bind", "127.0.0.1", "--port", "9999",
+                                   "--data-dir", str(self.tmp / "evidence"), "--session-id", "20261014_164210_abcdef"]), 0)
+        config = ServerConfig.load(config_path)
+        self.assertEqual((config.port, config.hermes_python, config.vault), (9999, "", ""))
+        self.assertEqual(os.stat(config.token_path).st_mode & 0o777, 0o600)
+        state = json.loads((self.tmp / "evidence" / "server-state.json").read_text())
+        self.assertEqual(state["stored_session_id"], "20261014_164210_abcdef")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["--config", str(config_path), "init", "--bind", "0.0.0.0"]), 2)
+
+
 class JournalMigrationTests(TempDirTestCase):
     def journal(self, path, rows):
         connection = sqlite3.connect(path)
