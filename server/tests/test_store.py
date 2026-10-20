@@ -247,6 +247,28 @@ class SwiftCompatibilityTests(StoreTestCase):
         self.assertEqual(written["images"][0]["fileURL"], resolved)
         self.assertIn("Application%20Support", resolved)
 
+    def test_store_copied_to_another_machine_opens_and_stays_readable(self):
+        import shutil
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from runtime.xcreen_tools import EvidenceReader
+        store = self.open()
+        moment = now() - timedelta(minutes=5)
+        store.ingest_image("image-1", moment, png())
+        moved = self.tmp / "other machine" / "evidence"
+        shutil.copytree(store.root, moved)
+        copied = EvidenceStore(moved)
+        self.assertEqual(copied.image("image-1").path.parent, copied.images_dir)
+        self.assertTrue(EvidenceReader(copied.root).view_image("image-1")["_multimodal"])
+
+    def test_index_entries_cannot_point_outside_the_store(self):
+        root = self.tmp / "evil"
+        (root / "images").mkdir(parents=True)
+        for url in ("file:///etc/passwd", "file:///x/images/..", "file:///x/images/notes.md"):
+            (root / "index.json").write_text(json.dumps({"images": [{"id": "image-1", "timestamp": 0, "fileURL": url}], "ocr": [], "batches": []}))
+            with self.assertRaises(StoreError):
+                EvidenceStore(root)
+
     def test_runtime_evidence_reader_reads_server_store(self):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
