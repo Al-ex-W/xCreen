@@ -75,13 +75,15 @@ class BatchReceipt:
             if not ((status == "saved" and effects) or (status == "skipped" and not effects)):
                 raise ProtocolFailure("verified receipt status contradicts its effects")
             ids = [e.get("entry_id") for e in effects]
-            if not all(isinstance(i, str) for i in ids) or len(set(ids)) != len(ids) or any(e.get("state") != "completed" for e in effects):
+            # A completed effect that a later bullet revised is reported as "superseded"; it still
+            # counts as done (runtime/xcreen_receipts.py treats both as terminal).
+            if not all(isinstance(i, str) for i in ids) or len(set(ids)) != len(ids) or any(e.get("state") not in ("completed", "superseded") for e in effects):
                 raise ProtocolFailure("verified receipt effects are incomplete")
         parsed = []
         for item in effects:
             entry, state = item.get("entry_id"), item.get("state")
             day, digest = item.get("day"), item.get("digest")
-            if (not isinstance(entry, str) or not entry or len(entry.encode()) > 128 or state not in ("completed", "pending", "uncertain")
+            if (not isinstance(entry, str) or not entry or len(entry.encode()) > 128 or state not in ("completed", "superseded", "pending", "uncertain")
                     or (day is not None and (not isinstance(day, str) or len(day.encode()) > 32))
                     or (digest is not None and (not isinstance(digest, str) or len(digest.encode()) > 128))):
                 raise ProtocolFailure("invalid effect receipt")
