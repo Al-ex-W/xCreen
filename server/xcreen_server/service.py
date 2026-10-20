@@ -184,6 +184,7 @@ class XCreenService:
         self.active_turn: str | None = None
         self.current_model: tuple[str, str] | None = None
         self.started = time.time()
+        self.model_check_interval = 300.0
         self._maintenance: asyncio.Task | None = None
         self._tasks: set[asyncio.Task] = set()
         self.runtime.listeners.append(self._on_event)
@@ -217,6 +218,7 @@ class XCreenService:
     async def start(self, *, connect: bool = True) -> None:
         await self.runtime.set_integrity(self.integrity)
         self._maintenance = self._spawn(self._maintain())
+        self._spawn(self._watch_model(self.model_check_interval))
         self.store.form_batches()
         if connect and (self.launch_override or (self.config.hermes_python and self.config.hermes_root)):
             self._spawn(self._connect_quietly())
@@ -249,15 +251,21 @@ class XCreenService:
             log.info("xCreen default model not applied: %s", self.controller.model_status)
         self.pipeline.kick()
 
-    async def _maintain(self) -> None:
-        ticks = 0
+    async def _watch_model(self, interval: float = 300) -> None:
+        """Re-reads Hermes's inventory while the xCreen default isn't applied, on its own timer:
+        compaction passes in the maintenance loop can take minutes."""
         while True:
-            ticks += 1
+            await asyncio.sleep(interval)
             try:
-                if self.controller.connected and not self.controller.model_applied and ticks % 5 == 0:
-                    if await self.controller.refresh_model():
-                        log.info("xCreen default model applied; resuming digests")
-                        self.pipeline.kick()
+                if self.controller.connected and not self.controller.model_applied and await self.controller.refresh_model():
+                    log.info("xCreen default model applied; resuming digests")
+                    self.pipeline.kick()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("model re-check failed: %s", exc)
+
+    async def _maintain(self) -> None:
+        while True:
+            try:
                 self.store.cleanup()
                 compressed = await self.compactor.run()
                 if compressed:
