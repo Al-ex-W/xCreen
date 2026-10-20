@@ -20,6 +20,14 @@ class ReceiptTests(unittest.TestCase):
         self.assertTrue(saved.completes_processing)
         self.assertEqual(saved.effect_count, 1)
 
+    def test_superseded_effects_still_complete_a_verified_receipt(self):
+        """A bullet later revised by xCreen is reported as superseded by the runtime."""
+        parsed = BatchReceipt.parse(receipt(status="saved", effects=[{"entry_id": "e1", "state": "superseded"},
+                                                                     {"entry_id": "e2", "state": "completed"}]), **BINDING)
+        self.assertTrue(parsed.completes_processing)
+        with self.assertRaises(ProtocolFailure):
+            BatchReceipt.parse(receipt(status="saved", effects=[{"entry_id": "e1", "state": "migrated"}]), **BINDING)
+
     def test_binding_mismatch_is_rejected(self):
         for change in ({"batch_id": "other"}, {"session_id": "other"}, {"source_ids": ["image-1"]}, {"source_ids": ["image-1", "image-1"]}):
             with self.assertRaises(ProtocolFailure):
