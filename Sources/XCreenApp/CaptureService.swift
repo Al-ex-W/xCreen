@@ -168,7 +168,7 @@ final class CaptureService {
         intent.verifiedSafe()
         let previousClock = checkpoint.clock
         do {
-            let (image, title) = try await captureWindow(target: target, token: token)
+            let (image, title) = try await captureDisplay(target: target, token: token)
             guard accepts(token, target) else { return }
             let text = try await VisionTextRecognizer.recognize(image)
             guard accepts(token, target) else { return }
@@ -264,14 +264,28 @@ final class CaptureService {
         return ForegroundTarget(bundleID: id, processID: app.processIdentifier)
     }
 
-    private func captureWindow(target: ForegroundTarget, token: UInt64) async throws -> (CGImage, String) {
+    /// Captures the display that holds the focused window: everything visible there except the
+    /// menu bar, the Dock and every excluded app (password managers, System Settings, xCreen).
+    /// The focused window's title is kept as the OCR record's title.
+    private func captureDisplay(target: ForegroundTarget, token: UInt64) async throws -> (CGImage, String) {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard accepts(token, target) else { throw CaptureServiceError.superseded }
         guard let window = content.windows.first(where: { $0.owningApplication?.processID == target.processID && $0.windowLayer == 0 && $0.frame.width > 1 && $0.frame.height > 1 }) else { throw CaptureServiceError.noForegroundWindow }
-        let config = SCStreamConfiguration(); let scale = NSScreen.main?.backingScaleFactor ?? 2
-        config.width = min(4096, max(1, Int(window.frame.width * scale))); config.height = min(4096, max(1, Int(window.frame.height * scale))); config.showsCursor = false
+        let displays = content.displays.map { DisplayCapturePlan.Display(id: $0.displayID, frame: $0.frame) }
+        guard let chosen = DisplayCapturePlan.display(for: window.frame, among: displays),
+              let display = content.displays.first(where: { $0.displayID == chosen.id }) else {
+            log.write(.capture, "no display for focused window frame=\(window.frame) displays=\(displays.map { "\($0.id):\($0.frame)" })")
+            throw CaptureServiceError.noForegroundWindow
+        }
+        let screen = NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == display.displayID }
+        let source = screen.map { DisplayCapturePlan.sourceRect(frame: $0.frame, visibleFrame: $0.visibleFrame) } ?? CGRect(origin: .zero, size: display.frame.size)
+        let size = DisplayCapturePlan.outputSize(for: source, backingScale: screen?.backingScaleFactor ?? 2)
+        let excluded = DisplayCapturePlan.excludedBundleIDs(running: content.applications.map(\.bundleIdentifier))
+        let filter = SCContentFilter(display: display, excludingApplications: content.applications.filter { excluded.contains($0.bundleIdentifier) }, exceptingWindows: [])
+        let config = SCStreamConfiguration()
+        config.sourceRect = source; config.width = size.width; config.height = size.height; config.showsCursor = false
         guard accepts(token, target) else { throw CaptureServiceError.superseded }
-        let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         return (image, window.title ?? "")
     }
 
