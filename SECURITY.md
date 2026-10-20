@@ -2,9 +2,13 @@
 
 Not security-audited or notarized. Integrity defaults ON only when no explicit preference exists and preserves the user's chosen preference. Only explicit user actions change it. Permission/session/app gates can suspend capture without changing that preference. Integrity ON blocks new screenshots/OCR and automatic transmission; it does not erase retained evidence or provider history, or block deliberate historical questions.
 
+## What a capture contains
+
+Each capture is the display holding the focused window (`DisplayCapturePlan`): every visible window on it, without the menu bar and the Dock, scaled to at most 2560 px wide. ScreenCaptureKit removes the windows of every excluded app (below) and of xCreen itself from the frame. If an excluded app is the focused app, nothing is captured. Windows whose app blocks screen capture appear blank. Everything else visible on that display, including background windows and notifications, is captured. Other displays are not.
+
 ## Foreground exclusions and their limits
 
-Browsers are eligible, including Safari, Chrome, Firefox, Edge, Brave, Arc and Orion. **Browser password fields, password-manager extensions/popovers and incognito/private windows are not detected or redacted.** There is no page/URL, Accessibility secure-field, private-mode or secret-content detector in the native capture path. Vision recognizes text; it does not sanitize secrets. Masked password dots are not a protection supplied by xCreen. Visible credentials, recovery codes, autofill menus and login pages can enter screenshots/OCR and later automatic model batches. Turn Integrity ON before sensitive activity. There is no universal password/login protection guarantee.
+Browsers are eligible, including Safari, Chrome, Firefox, Edge, Brave, Arc and Orion. **Browser password fields, password-manager extensions/popovers and incognito/private windows are not detected or redacted, whether they are in the focused window or in a background window on the captured display.** There is no page/URL, Accessibility secure-field, private-mode or secret-content detector in the native capture path. Vision recognizes text; it does not sanitize secrets. Masked password dots are not a protection supplied by xCreen. Visible credentials, recovery codes, autofill menus and login pages can enter screenshots/OCR and later automatic model batches. Turn Integrity ON before sensitive activity. There is no universal password/login protection guarantee.
 
 `ForegroundCapturePolicy` compares lowercase bundle IDs:
 

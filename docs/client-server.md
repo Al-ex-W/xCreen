@@ -22,7 +22,7 @@ xCreen is always two programs that talk over one versioned HTTP interface ([prot
                                                 └──────────────────────────────────────┘
 ```
 
-- **Client** (Swift, macOS): captures the eligible foreground window, runs local OCR, keeps captured items in a durable outbox until the server acknowledges them, and shows the tray, CLI and Spotlight surfaces. It holds no Hermes, vault or batch logic.
+- **Client** (Swift, macOS): captures the display holding the focused window (minus excluded apps), runs local OCR, keeps captured items in a durable outbox until the server acknowledges them, and shows the tray, CLI and Spotlight surfaces. It holds no Hermes, vault or batch logic.
 - **Server** (Python 3.10+, standard library only, runs with Hermes's own Python): owns the evidence store, forms batches, owns the dedicated Hermes session (digests and questions), the receipts journal and the vault.
 
 The **complete install** is the same two programs on one Mac: the server runs as a LaunchAgent bound to `127.0.0.1`. The **split install** runs the server next to Hermes (for example a Debian VM) and the client points at it, typically over Tailscale. Both installs run identical code; only the server URL differs.

@@ -28,7 +28,7 @@
   "@type": "SoftwareApplication",
   "name": "xCreen",
   "alternateName": "xCreen screen memory",
-  "description": "Open source screen memory for Hermes. A Mac app captures the foreground window with local Apple Vision OCR; Hermes runs on the same Mac or a home server, keeps 7 days of screen history and writes short takeaways into your Obsidian daily notes.",
+  "description": "Open source screen memory for Hermes. A Mac app captures the display you're working on with local Apple Vision OCR; Hermes runs on the same Mac or a home server, keeps 7 days of screen history and writes short takeaways into your Obsidian daily notes.",
   "url": "https://al-ex-w.github.io/xCreen/",
   "applicationCategory": "ProductivityApplication",
   "operatingSystem": "macOS 14+ (capture app); macOS or Linux (server, next to Hermes)",
@@ -44,7 +44,7 @@
   "screenshot": "https://al-ex-w.github.io/xCreen/assets/tray.png",
   "softwareRequirements": "macOS 14 or later for the capture app (Xcode/Swift to build); Hermes Agent (https://github.com/NousResearch/hermes-agent) on the same Mac or on a Linux/macOS server",
   "featureList": [
-    "Local Apple Vision OCR of the foreground window, at most once per second, with near-duplicate dropping",
+    "Local Apple Vision OCR of the display you are working on (excluded apps removed), at most once per second, with near-duplicate dropping",
     "Screenshot every 10 active seconds, raw evidence deleted after 7 days",
     "Batches every 5 active minutes to one persistent Hermes Agent session",
     "Short takeaways in Obsidian daily notes and related notes",
@@ -78,7 +78,7 @@
 <h2 id="what-it-does">What it does</h2>
 <ul>
   <li><strong>Ask about what you've seen.</strong> From the menu-bar tray, the macOS 26+ "Ask xCreen" Spotlight action (it fills the question in, you submit), or <code>xcreen ask</code> in a terminal.</li>
-  <li><strong>Local capture with dedup.</strong> Apple Vision OCR runs on the foreground window at most once per second, and text that is at least 90% similar to the last snapshot is dropped. A screenshot is saved every 10 active seconds.</li>
+  <li><strong>Local capture with dedup.</strong> xCreen screenshots the display you're working on (minus the menu bar, the Dock and excluded apps) and runs Apple Vision OCR on it at most once per second, and text that is at least 90% similar to the last snapshot is dropped. A screenshot is saved every 10 active seconds.</li>
   <li><strong>Hermes on your Mac or on a server.</strong> The Mac app only captures and uploads. <code>xcreen-server</code> runs next to Hermes, on the same Mac or on a Linux or macOS machine you reach over Tailscale, and owns the screen history, the Hermes session and your notes. Both setups run the same code.</li>
   <li><strong>One Hermes session, not a new chat each time.</strong> Every 30 screenshots (5 active minutes), a batch goes to a single persistent xCreen session in your Hermes Agent, on the model you chose for xCreen.</li>
   <li><strong>Notes that read like yours.</strong> Decisions, deadlines, people and ideas go into that day's note in your Obsidian vault as short bullets, plus related notes when they fit. Nothing worth keeping, nothing written.</li>
@@ -88,7 +88,7 @@
 
 <h2 id="how-it-works">How it works</h2>
 <ol>
-  <li>While Integrity is OFF and every safety gate passes (Mac unlocked and awake, permission granted, foreground app not excluded), xCreen samples the foreground window for local OCR.</li>
+  <li>While Integrity is OFF and every safety gate passes (Mac unlocked and awake, permission granted, foreground app not excluded), xCreen captures the display you're working on, without the menu bar, the Dock and excluded apps, for local OCR.</li>
   <li>Near-duplicate OCR is discarded; screenshots are saved every ten active seconds. The Mac keeps them in a private outbox only until <code>xcreen-server</code> has them, and keeps queuing while the server is unreachable.</li>
   <li>On the server, every 30 screenshots (five active minutes) form a durable batch, sent to the same dedicated xCreen session in Hermes Agent.</li>
   <li>The runtime shipped with the server gives that session only scoped tools: OCR search and listing, image lookup, and a writer that adds takeaways to that day's daily note and related notes.</li>
@@ -98,7 +98,7 @@
 
 <h2 id="privacy">Privacy and safety</h2>
 <ul>
-  <li><strong>What's captured:</strong> screenshots and OCR text of the eligible foreground window, only while Integrity is OFF and the Mac is unlocked and awake.</li>
+  <li><strong>What's captured:</strong> screenshots and OCR text of the display you're working on (excluded apps removed), only while Integrity is OFF and the Mac is unlocked and awake.</li>
   <li><strong>Where it's stored:</strong> private files outside your vault on the machine that runs <code>xcreen-server</code> (your Mac, or your server). This storage is not encrypted, so use FileVault or disk encryption. Only short takeaways go into your notes.</li>
   <li><strong>Between Mac and server:</strong> every request carries a secret token; plain HTTP is only accepted on loopback, private networks and Tailscale.</li>
   <li><strong>Retention:</strong> raw evidence expires after 7 days. Anything already sent to your model provider or saved in Hermes history follows their retention rules. Deletion does not guarantee forensic erasure.</li>
