@@ -24,13 +24,15 @@ public struct ServerStatus: Decodable, Equatable, Sendable {
     public let unbatched: [String: Int]?
     public let nextRetry: String?
     public let message: String?
+    /// Why automatic digests are on hold (empty when they run).
+    public let digestHold: String?
     public let vault: Bool?
     public let compression: String?
     public let activeTurn: String?
     enum CodingKeys: String, CodingKey {
         case `protocol`, version, hermes, model, integrity, batches, unbatched, message, vault, compression
         case sessionVisible = "session_visible", sessionVisibleConfirmed = "session_visible_confirmed", visibilityPending = "visibility_pending"
-        case nextRetry = "next_retry", activeTurn = "active_turn"
+        case nextRetry = "next_retry", activeTurn = "active_turn", digestHold = "digest_hold"
     }
 }
 

@@ -70,6 +70,8 @@ class BatchPipeline:
                 except Exception as exc:  # noqa: BLE001
                     log.warning("batch %s deferred: gateway unavailable (%s)", batch.id, exc)
                     return
+                if not self.allowed():  # e.g. the xCreen default model turned out unavailable
+                    return
             # Backed off (e.g. provider rate limit): leave it pending for the retry timer.
             if batch.id not in {b.id for b in self.store.pending_batches()}:
                 self.schedule_retry()
@@ -169,7 +171,9 @@ class XCreenService:
         self.controller.on_ready = self._on_ready
         self.encoder = default_encoder() if encoder == "auto" else encoder
         self.compactor = ImageCompactor(self.store, self.encoder)
-        self.pipeline = BatchPipeline(self.store, self.runtime, self.controller, lambda: not self.integrity)
+        # Automatic digests run only with Integrity OFF and the xCreen default model confirmed on the
+        # session: never on whatever model the Hermes profile happens to default to.
+        self.pipeline = BatchPipeline(self.store, self.runtime, self.controller, self._digests_allowed)
         status = self.store.capture_status() or {}
         # Fail closed: automatic digests stay blocked until a client reports Integrity OFF.
         self.integrity = status.get("desired_integrity") != "off"
@@ -185,6 +189,17 @@ class XCreenService:
         self.runtime.listeners.append(self._on_event)
 
     # ── lifecycle ────────────────────────────────────────────────────────────
+
+    def _digests_allowed(self) -> bool:
+        return not self.integrity and (self.controller.model_applied or not self.controller.connected)
+
+    @property
+    def digest_hold(self) -> str:
+        if self.integrity:
+            return "Integrity is ON (or no client has reported yet)."
+        if self.controller.connected and not self.controller.model_applied:
+            return "Waiting for the xCreen default model: " + self.controller.model_status
+        return ""
 
     def _launch(self) -> Launch:
         if self.launch_override is not None:
@@ -235,8 +250,14 @@ class XCreenService:
         self.pipeline.kick()
 
     async def _maintain(self) -> None:
+        ticks = 0
         while True:
+            ticks += 1
             try:
+                if self.controller.connected and not self.controller.model_applied and ticks % 5 == 0:
+                    if await self.controller.refresh_model():
+                        log.info("xCreen default model applied; resuming digests")
+                        self.pipeline.kick()
                 self.store.cleanup()
                 compressed = await self.compactor.run()
                 if compressed:
@@ -277,7 +298,7 @@ class XCreenService:
             "client_seen": datetime.fromtimestamp(self.client_seen, timezone.utc).isoformat() if self.client_seen else None,
             "batches": self.store.counts(), "unbatched": self.store.unbatched_counts(), "latest": self.store.latest(),
             "next_retry": self.pipeline.next_retry.isoformat() if self.pipeline.next_retry else None,
-            "message": self.pipeline.message, "vault": bool(self.config.vault), "compression": describe(self.encoder),
+            "message": self.pipeline.message, "digest_hold": self.digest_hold, "vault": bool(self.config.vault), "compression": describe(self.encoder),
             "active_turn": self.active_turn,
         }
 

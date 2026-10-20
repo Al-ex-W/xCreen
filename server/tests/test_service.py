@@ -149,6 +149,39 @@ class DigestTests(ServiceTestCase):
             await service.stop()
         run(scenario())
 
+    def test_pipeline_connecting_itself_still_respects_the_model_gate(self):
+        async def scenario():
+            service = self.service()
+            await service.start(connect=False)
+            await service.set_default_model("openai", "gpt-x")
+            await service.report_capture("running", "", False)
+            self.upload(service)  # pipeline connects on its own
+            await until(lambda: service.controller.connected)
+            await asyncio.sleep(0.3)
+            self.assertNotIn("prompt.submit", self.requests())
+            self.assertEqual(service.store.counts()["pending"], 1)
+            await service.stop()
+        run(scenario())
+
+    def test_digests_wait_for_the_default_model_and_resume_when_it_appears(self):
+        async def scenario():
+            service = self.service()
+            await service.start(connect=False)
+            await service.set_default_model("openai", "gpt-x")  # not in the inventory
+            await service.connection("connect")
+            await service.report_capture("running", "", False)
+            self.upload(service)
+            await asyncio.sleep(0.3)
+            self.assertNotIn("prompt.submit", self.requests())
+            self.assertIn("default model", service.status()["digest_hold"])
+            service.state.set(model_default={"provider": "anthropic", "model": "claude-sonnet-5-5"})  # now configured
+            self.assertTrue(await service.controller.refresh_model())
+            service.pipeline.kick()
+            await until(lambda: service.store.counts()["completed"] == 1)
+            self.assertEqual(service.status()["digest_hold"], "")
+            await service.stop()
+        run(scenario())
+
     def test_provider_rate_limit_with_zero_effects_backs_off(self):
         async def scenario():
             service = self.service("429")
