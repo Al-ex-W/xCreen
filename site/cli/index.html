@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>xCreen local CLI and JSON interface: xcreen commands and --json output</title>
-<meta name="description" content="The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Local only; read-only MCP server planned.">
+<meta name="description" content="The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Works with Hermes on your Mac or on a server; read-only MCP server planned.">
 <link rel="canonical" href="https://al-ex-w.github.io/xCreen/cli/">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../style.css">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="xCreen">
 <meta property="og:title" content="xCreen local CLI and JSON interface">
-<meta property="og:description" content="The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Local only; read-only MCP server planned.">
+<meta property="og:description" content="The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Works with Hermes on your Mac or on a server; read-only MCP server planned.">
 <meta property="og:url" content="https://al-ex-w.github.io/xCreen/cli/">
 <meta property="og:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
 <meta property="og:image:width" content="1280">
@@ -19,14 +19,14 @@
 <meta property="og:image:alt" content="xCreen: screen memory for Hermes on macOS">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="xCreen local CLI and JSON interface">
-<meta name="twitter:description" content="The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Local only; read-only MCP server planned.">
+<meta name="twitter:description" content="The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Works with Hermes on your Mac or on a server; read-only MCP server planned.">
 <meta name="twitter:image" content="https://al-ex-w.github.io/xCreen/assets/social-preview.png">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "headline": "xCreen local CLI and JSON interface",
-  "description": "The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Local only; read-only MCP server planned.",
+  "description": "The xcreen command-line tool: ask about your screen history, check capture status and read batches from a terminal or agent, with --json output. Works with Hermes on your Mac or on a server; read-only MCP server planned.",
   "url": "https://al-ex-w.github.io/xCreen/cli/",
   "mainEntityOfPage": "https://al-ex-w.github.io/xCreen/cli/",
   "datePublished": "2026-10-18",
@@ -66,8 +66,11 @@
   connection connect|disconnect|reconnect  (also accepted as top-level commands)
   models [list] | model select PROVIDER MODEL   (select also saves the xCreen default)
   model default [get] | model default PROVIDER MODEL  xCreen-session default only
-  settings [show] | settings set python|root|vault VALUE
-  settings autodetect | autodetect
+  server [show]                   xCreen server URL, reachability and upload queue
+  server set URL [--token-stdin | --token-file PATH]   token is stored in the Keychain
+  flush                          upload everything still queued now
+  settings [show] | settings set python|root|vault|timezone VALUE   (paths on the server)
+  settings autodetect | autodetect   find Hermes and the vault on the server
   ask QUESTION [--wait-ms 0..30000]  explicit submission to the existing xCreen session
   history [--after CURSOR]        bounded sanitized history pages
   batches [--after BATCH_ID]      up to 20 durable batch metadata records
@@ -77,7 +80,8 @@
   images [list|open ID]           reply attachment metadata/open through the app
   panel [show|hide]
   start | stop | restart | quit
-  logs [-n N] [--no-follow] [--gateway]</code></pre>
+  logs [-n N] [--no-follow] [--gateway | --server]   (server logs only for a local server)</code></pre>
+<p>With Hermes on another machine, the app forwards Hermes, model, batch and settings commands to <code>xcreen-server</code> over its <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/protocol.md">HTTP protocol</a>; <code>xcreen server</code> shows which server and whether it is reachable.</p>
 
 <h2 id="json-output">JSON output</h2>
 <p>Put <code>--json</code> before the command. You get the app's full response as one JSON object:</p>
