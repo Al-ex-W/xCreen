@@ -7,9 +7,9 @@
 
 <!-- source: https://github.com/Al-ex-W/xCreen/blob/main/README.md -->
 
-# xCreen: screen memory for Hermes on macOS
+# xCreen: screen memory for Hermes
 
-**xCreen reads your screen with local OCR and has your [Hermes Agent](https://github.com/NousResearch/hermes-agent) write short takeaways into your Obsidian daily notes.**
+**xCreen reads your screen with local OCR and has your [Hermes Agent](https://github.com/NousResearch/hermes-agent) write short takeaways into your Obsidian daily notes. Hermes can run on the same Mac or on a home server.**
 
 An open source alternative to Rewind and Microsoft Recall, for Macs running Hermes. [Website](https://al-ex-w.github.io/xCreen/) · [FAQ](https://al-ex-w.github.io/xCreen/faq/) · [Alternatives compared](https://al-ex-w.github.io/xCreen/alternatives/)
 
@@ -23,7 +23,8 @@ An open source alternative to Rewind and Microsoft Recall, for Macs running Herm
 
 - **Menu-bar tray, Spotlight and CLI.** Ask questions about what you've seen from the tray, the macOS 26+ "Ask xCreen" Spotlight action or the "Search xCreen" row Spotlight offers under "Search in Apps" for any typed text (both fill the question in, you submit), or `xcreen ask` in a terminal.
 - **Local capture with dedup.** Runs Apple Vision OCR on the foreground window at most once per second and drops text that is ≥90% similar to the last snapshot. Saves a screenshot every 10 active seconds, losslessly until its batch is digested, then as a mozjpeg JPEG at about 1/8 the size.
-- **Batches into one Hermes session.** Every 5 active minutes (or 30 images), a batch goes to a single persistent xCreen session in your Hermes Agent. It does not start a new chat each time.
+- **Hermes on your Mac or on a server.** The Mac app only captures and uploads. `xcreen-server` runs next to Hermes, on the same Mac or on a Linux/macOS machine you reach over Tailscale, and owns the evidence, the Hermes session and the vault. Both setups run the same code ([client and server](docs/client-server.md)).
+- **Batches into one Hermes session.** Every 30 screenshots (5 active minutes), the server sends a batch to a single persistent xCreen session in your Hermes Agent. It does not start a new chat each time, and it never digests on a model other than the xCreen default you chose.
 - **Notes that read like yours.** The model first reads your vault's own conventions (e.g. `Agent/Vault Conventions.md`), then adds only what's worth remembering — decisions, deadlines, milestones, people, ideas — as plain bullets with `[[wikilinks]]` in that day's Daily note, and a dated line in a related existing project/person/organisation note when relevant. No page-by-page activity log and no ids or HTML comments in your notes; provenance (evidence ids, exact text, hashes) stays in xCreen's private journal. A batch with nothing worth noting writes nothing.
 - **Integrity switch.** One switch, controlled only by you, stops all new screenshots and OCR. It is ON at first launch and keeps your choice across restarts.
 - **7-day local retention, any model.** Raw evidence is deleted after seven days. You can pick any model your Hermes setup has configured. The default for the xCreen session is Claude Haiku 5.5 on your Anthropic account.
@@ -34,12 +35,12 @@ Checked October 2026 against each project's own pages ([sources](#sources)).
 
 | | xCreen | Rewind | screenpipe | Retrace | Goldfish | Microsoft Recall |
 |---|---|---|---|---|---|---|
-| Platform | macOS 14+ | macOS[^rw1] | macOS, Windows, Linux[^sp1] | macOS 13+, Apple Silicon[^rt1] | macOS, Windows[^gf1] | Windows 11 Copilot+ PCs[^ms1] |
+| Platform | Capture on macOS 14+; server on macOS or Linux | macOS[^rw1] | macOS, Windows, Linux[^sp1] | macOS 13+, Apple Silicon[^rt1] | macOS, Windows[^gf1] | Windows 11 Copilot+ PCs[^ms1] |
 | License / source | Apache-2.0, open source | — | Source-available Screenpipe Commercial License; personal non-commercial use free, commercial use needs a license[^sp2] | MIT, open source[^rt2] | Not covered here | Windows feature |
 | Capture method | Foreground-window screenshots + local Vision OCR | Screen and audio recording[^rw1] | Accessibility tree, OCR fallback, audio transcription[^sp1] | Screenshots every 2 s + Vision OCR, SQLite FTS5[^rt1] | Foreground-window text via Accessibility, no screenshots[^gf2] | Periodic snapshots[^ms1] |
 | Where AI runs | Whichever provider your Hermes route uses (OCR is local, inference usually isn't) | — | Local models (e.g. Ollama) or cloud AI, as you configure[^sp1] | No model inference listed as active[^rt1] | Cloud: Azure OpenAI via Cloudflare; memory stored locally[^gf2] | Processed locally on the PC[^ms2] |
 | Writes to your notes | Yes, short takeaways in Obsidian daily notes | — | — | — | Keeps its own local memory, exposed over MCP[^gf2] | — |
-| Status | 1.0.0 | Shut down: capture disabled Dec 19, 2025 after Meta acquired Limitless[^rw1][^rw2] | Actively developed[^sp1] | "Very early development"[^rt1] | Free beta[^gf1] | Available on supported PCs[^ms1] |
+| Status | 2.0.0 | Shut down: capture disabled Dec 19, 2025 after Meta acquired Limitless[^rw1][^rw2] | Actively developed[^sp1] | "Very early development"[^rt1] | Free beta[^gf1] | Available on supported PCs[^ms1] |
 
 "—" and "Not covered here" mean we did not check a primary source for that cell. Rewind's AI features are left out because the app has been discontinued.
 
@@ -47,31 +48,46 @@ Also compared, with sources: [ActivityWatch](https://al-ex-w.github.io/xCreen/al
 
 ## Requirements and who it's for
 
-For Mac users who run Hermes Agent and keep notes in Obsidian.
+For Mac users who run Hermes Agent (on the Mac or on a server) and keep notes in Obsidian.
 
 - **A working [Hermes Agent](https://github.com/NousResearch/hermes-agent) install is required.** xCreen does not include a model or keep API keys. It uses your Hermes profile read-only.
 - **Local OCR does not mean local inference.** Batches and questions go to the provider behind your chosen route, and that provider's retention rules apply. For on-device inference, configure a local model in Hermes.
-- macOS 14 or later. Building from source needs Xcode/Swift and Python 3. Homebrew `mozjpeg` compresses digested screenshots; the install script adds it. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.
+- The Mac app needs macOS 14 or later; building it needs Xcode/Swift. The server needs Hermes's own Python (3.10+) on macOS or Linux; it compresses digested screenshots with mozjpeg, Pillow or Debian's `netpbm` + `libjpeg-turbo-progs`, whichever is installed. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.
 
 ## Quick start
 
+Hermes on the same Mac:
+
 ```sh
 git clone https://github.com/Al-ex-W/xCreen.git && cd xCreen
-bash scripts/install.sh           # builds, installs to ~/Applications, copies `xcreen` to ~/.local/bin
+bash scripts/install.sh           # app + local xcreen-server, settings imported from 1.x
 xcreen status                     # Integrity should report ON (capture paused)
 ```
 
-Or download the zip from [release 1.0.0](https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0). Turn Integrity OFF from the tray to start capture. See [INSTALL.md](INSTALL.md) for vault setup, signing, verification and uninstalling.
+Hermes on a server (for example a Linux VM on your tailnet):
+
+```sh
+# on the server, next to Hermes
+git clone https://github.com/Al-ex-W/xCreen.git && cd xCreen
+bash scripts/install-server.sh --tailscale
+
+# on the Mac
+bash scripts/install.sh --client --server http://SERVER-TAILSCALE-IP:8765
+ssh SERVER '~/.local/bin/xcreen-server token' | xcreen server set http://SERVER-TAILSCALE-IP:8765 --token-stdin
+```
+
+Or download the app from [release 2.0.0](https://github.com/Al-ex-W/xCreen/releases/tag/v2.0.0). Turn Integrity OFF from the tray to start capture. See [INSTALL.md](INSTALL.md) for vault setup, moving an existing install to a server, verification and uninstalling.
 
 ## Privacy and safety
 
 - **What's captured** (only while Integrity is OFF and the Mac is unlocked and awake): screenshots and OCR text of the eligible foreground window.
-- **Where it's stored:** in private files under `~/Library/Application Support/xCreen`, outside your vault and outside this repository. This storage is not encrypted, so use FileVault. Only short distilled bullets go into your vault; their evidence links live in the private receipt journal under `~/.hermes/xcreen-receipts`, not in notes.
+- **Where it's stored:** on the machine that runs `xcreen-server`, in private files outside your vault and outside this repository (`~/Library/Application Support/xCreen/Evidence` on a Mac, `~/.local/share/xcreen/evidence` on Linux). The Mac keeps captures in a private outbox only until the server has them. This storage is not encrypted, so use FileVault or disk encryption on the server. Only short distilled bullets go into your vault; their evidence links live in the private receipt journal under `~/.hermes/xcreen-receipts`, not in notes.
+- **Between Mac and server:** a bearer token (Keychain on the Mac, `0600` file on the server) authenticates every request. Plain HTTP is accepted only on loopback, private networks and Tailscale; anything else needs HTTPS.
 - **Retention:** raw evidence expires after 7 days. Screenshots are recompressed to JPEG once their batch is digested, so later questions see a lossy copy; the digest itself always uses the lossless capture. Anything already sent to your model provider or saved in Hermes history follows their retention rules. Deletion does not guarantee forensic erasure.
 - **Excluded:** known password managers (1Password, Bitwarden, LastPass, Dashlane, KeePass, Apple Passwords, Keychain), System Settings, lock and login screens, and xCreen itself.
 - **NOT protected:** browser password fields, password-manager browser extensions and popovers, and incognito/private windows are **not detected or redacted**. Turn Integrity ON before sensitive browsing.
 - **Vault writes are confined:** Markdown only, inside existing vault folders; never `Agent/`, `Archive/`, templates or hidden folders (`.obsidian`), never outside the vault, bounded size, and xCreen never deletes or rewrites your text (it only adds lines or revises lines it wrote itself).
-- **Integrity is user-only:** only your tray or CLI action changes it. The model and screen content cannot turn capture on. Screen text is treated as untrusted evidence, never as instructions.
+- **Integrity is user-only:** only your tray or CLI action changes it. The Mac reports it to the server, which sends no automatic batches while it is ON. The model and screen content cannot turn capture on. Screen text is treated as untrusted evidence, never as instructions.
 
 Full rules and limits: [SECURITY.md](SECURITY.md) · [How it works](docs/how-it-works.md).
 
@@ -83,6 +99,7 @@ xcreen ask "What was the error I saw in the build log this morning?"
 xcreen integrity on
 xcreen models list
 xcreen batches
+xcreen server                      # which server, reachable?, upload queue
 ```
 
 Full command list and semantics: [docs/cli.md](docs/cli.md).
@@ -92,6 +109,7 @@ Local CLI (JSON) today; MCP server planned. See the [CLI page](https://al-ex-w.g
 ## Documentation
 
 - [Install](INSTALL.md) · [CLI reference](docs/cli.md) · [How it works](docs/how-it-works.md) · [Roadmap](docs/roadmap.md)
+- [Client and server](docs/client-server.md) · [Protocol v1](docs/protocol.md)
 - [Architecture](docs/architecture.md) · [CLI/tray parity](docs/cli-parity.md) · [Native durability](docs/durable-native-processing.md)
 - [Implementation progress and limits](docs/implementation-progress.md) · [Working specification](docs/working-spec.md) · [Toolkit contract](docs/toolkit-contract.md)
 - [Platform research](docs/platform-research.md) · [macOS session research](docs/macos-session-research.md) · [License research](docs/licensing-research.md)
@@ -124,7 +142,23 @@ Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) an
 
 # Installing xCreen
 
-Requires macOS 14+, Xcode/Swift, Python 3 and Homebrew `mozjpeg` (the install script adds it; without it digested screenshots stay PNG), plus an installed [Hermes Agent](https://github.com/NousResearch/hermes-agent) (check with `hermes --print-runtime-command`). xCreen uses your Hermes profile read-only and sends inference to whichever provider your selected route uses; local OCR does not make inference local. Do not edit Hermes auth/config, grant screen permissions, enable capture, inspect private vault contents or run inference to verify installation.
+xCreen 2.0 is two programs: the **Mac app** (capture, OCR, tray, CLI) and **`xcreen-server`** (evidence, batching, the Hermes session, notes), which runs next to your [Hermes Agent](https://github.com/NousResearch/hermes-agent). Pick a layout:
+
+| Layout | Hermes runs on | Install |
+|---|---|---|
+| Complete | the same Mac | `bash scripts/install.sh` |
+| Split | another machine (Linux or macOS), reached over Tailscale or a private network | `scripts/install-server.sh` on the server, `scripts/install.sh --client` on the Mac |
+
+Both run the same code; see [client and server](docs/client-server.md).
+
+Requirements:
+
+- **Mac app:** macOS 14+, Xcode/Swift to build.
+- **Server:** an installed Hermes Agent (check with `hermes --print-runtime-command`); the server runs on Hermes's own Python, 3.10 or newer. To recompress digested screenshots it uses mozjpeg (Homebrew `mozjpeg`), Pillow, or on Debian/Ubuntu `sudo apt install netpbm libjpeg-turbo-progs`. Without any of them screenshots simply stay PNG.
+
+xCreen uses your Hermes profile read-only and sends inference to whichever provider the xCreen session's route uses; local OCR does not make inference local. If you're an agent installing this: do not edit Hermes auth/config, grant screen permissions, turn Integrity OFF, inspect vault contents or run inference to verify the installation.
+
+## Complete install (Hermes on this Mac)
 
 ```sh
 git clone https://github.com/Al-ex-W/xCreen.git
@@ -132,19 +166,86 @@ cd xCreen
 bash scripts/install.sh --no-launch
 ```
 
-The installer obtains Hermes's Python/source root from its official launcher, locates an optional vault using `OBSIDIAN_VAULT_PATH` or Obsidian metadata, builds and copies the app to `~/Applications`, pre-fills settings, and copies the standalone Python CLI to `~/.local/bin/xcreen`. Add that directory to PATH. `--vault "/absolute/vault/path"` overrides detection. Omit `--no-launch` to launch. Integrity defaults ON; a saved explicit preference is restored, but actual capture stays blocked until current safety gates pass. Startup never requests permissions.
+This installs `xcreen-server` (code in `~/.local/share/xcreen/app`, command in `~/.local/bin/xcreen-server`) as the LaunchAgent `dev.xcreen.server` on `127.0.0.1:8765`, finds Hermes and your Obsidian vault (`--vault "/absolute/path"` overrides), builds the app into `~/Applications` and copies the `xcreen` CLI to `~/.local/bin`. Add that directory to PATH.
 
-The copied CLI and bundled runtime do not depend on the checkout. The installer uses a configured `XCREEN_SIGN_IDENTITY`, otherwise an available Apple Development identity, otherwise ad-hoc signing. A stable signing identity keeps the Screen Recording permission across reinstalls.
+Upgrading from 1.x keeps everything: the server opens the existing evidence store and imports the Hermes paths, vault, session, visibility and model default from the 1.x app's preferences.
 
-## Install from the release zip
+Omit `--no-launch` and the installer also starts the app and stores the server token in your Keychain. Otherwise do that once the app runs:
 
-Download the zip from [release 1.0.0](https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0), unzip it and move `xCreen.app` to Applications. The app isn't notarized, so on first open go to System Settings → Privacy & Security and click Open Anyway.
+```sh
+xcreen-server token | xcreen server set http://127.0.0.1:8765 --token-stdin
+```
+
+## Split install (Hermes on a server)
+
+On the server, as the user that runs Hermes:
+
+```sh
+git clone https://github.com/Al-ex-W/xCreen.git
+cd xCreen
+bash scripts/install-server.sh --tailscale --vault "/absolute/path/to/vault/on/the/server"
+```
+
+- `--tailscale` binds the server to the machine's Tailscale IPv4 address, so only devices on your tailnet can reach it and WireGuard encrypts the traffic. `--bind ADDR` picks another address; the server refuses `0.0.0.0`.
+- On Linux it runs as the systemd user service `xcreen-server` (`systemctl --user status xcreen-server`). For it to start at boot without a login session: `sudo loginctl enable-linger $USER`. On macOS it's the LaunchAgent `dev.xcreen.server`.
+- The server owns the vault: notes are written to the vault folder on the server. Keeping that folder in sync with the Obsidian vault on your other devices (Obsidian Sync, Syncthing, …) is up to you.
+- The script ends with `xcreen-server doctor`, which checks config, token, Hermes, runtime, vault and the compression encoder.
+
+On the Mac:
+
+```sh
+git clone https://github.com/Al-ex-W/xCreen.git
+cd xCreen
+bash scripts/install.sh --client --server http://SERVER-TAILSCALE-IP:8765
+ssh SERVER '~/.local/bin/xcreen-server token' | xcreen server set http://SERVER-TAILSCALE-IP:8765 --token-stdin
+xcreen server
+```
+
+`xcreen server` should report the server as reachable. The MagicDNS name (`http://hermes.your-tailnet.ts.net:8765`) works as well. Plain HTTP is accepted only for loopback, private networks, Tailscale and `*.ts.net`/`*.local` names; use HTTPS (for example `tailscale serve`) for anything else.
+
+If the server is unreachable, the app keeps capturing into its local outbox (private, seven-day retention) and uploads it once the server is back. `xcreen flush` uploads immediately.
+
+## Moving an existing install to a server
+
+Your 1.x Mac or a complete install already has an evidence store, a receipts journal and a Hermes session. To carry them over:
+
+1. Stop capture and the old server: `xcreen quit` (and on a complete install `launchctl bootout gui/$(id -u)/dev.xcreen.server`).
+2. Install the server (above) with `--no-start`, then copy the evidence store and the receipts journal:
+
+   ```sh
+   rsync -a --exclude capture-checkpoint.json "$HOME/Library/Application Support/xCreen/Evidence/" SERVER:.local/share/xcreen/evidence/
+   rsync -a ~/.hermes/xcreen-receipts/ SERVER:.hermes/xcreen-receipts/
+   ```
+
+3. On the Mac, print the xCreen session id and the vault path the 1.x app used:
+
+   ```sh
+   python3 -c 'import json,plistlib,subprocess; p=plistlib.loads(subprocess.run(["defaults","export","dev.xcreen.app","-"],capture_output=True).stdout); print(json.loads(p["xcreen.hermes.session.record"])["storedSessionID"]); print(p.get("xcreen.vault.path",""))'
+   ```
+
+   On the server, resume that Hermes session and carry the receipts journal over to the server's vault path (the journal is keyed by the vault's path, which differs between machines):
+
+   ```sh
+   xcreen-server init --session-id SESSION_ID
+   xcreen-server migrate-journal --from-vault "MAC_VAULT_PATH"
+   systemctl --user start xcreen-server
+   ```
+
+   Hermes resumes the session only if the server's Hermes has it (for example because you migrated `~/.hermes` too); otherwise skip `--session-id` and the server starts a new xCreen session.
+
+4. Install the Mac client and give it the token (above). On connect the server verifies every batch receipt: batches whose notes were written stay completed, nothing is resent.
+
+The store can be copied as is: image paths are re-anchored by file name, so a store written on the Mac opens on Linux.
+
+## Install from the release
+
+Download `xCreen-2.0.0-macos.zip` from [release 2.0.0](https://github.com/Al-ex-W/xCreen/releases/tag/v2.0.0), unzip it and move `xCreen.app` to `~/Applications`. The app isn't notarized, so on first open go to System Settings → Privacy & Security and click Open Anyway. The server installs from a checkout (`scripts/install-server.sh`).
 
 ## Verify without capture or inference
 
 ```sh
-xcreen start
 xcreen status
+xcreen server
 xcreen integrity get
 xcreen session visibility get
 xcreen settings show
@@ -152,43 +253,61 @@ xcreen models list
 xcreen logs --no-follow
 ```
 
-Status is read directly from the running app, not a stale file. It must report Integrity true and capture paused. Connecting/model inventory resumes only the dedicated xCreen session and runs no model request. If Hermes cannot connect, the CLI returns an error and the tray shows the connection failure; no answer is claimed. Avoid publishing local settings/log output because it may contain personal paths or identifiers.
+Status comes from the running app and the server, not a stale file. It must report Integrity true and capture paused. Connecting and listing models resume only the dedicated xCreen session and run no model. If the default model isn't in Hermes's inventory, status says so and automatic batches wait; nothing falls back to another model. Avoid publishing settings or log output: it can contain personal paths or identifiers.
 
-## Change settings through the owner
+On the server: `xcreen-server doctor`, and logs with `journalctl --user -u xcreen-server` (Linux) or `xcreen logs --server` (a server on the same Mac).
+
+## Settings
 
 ```sh
-xcreen settings set python /absolute/python3
+xcreen settings set python /absolute/python3          # paths on the server
 xcreen settings set root /absolute/hermes-agent
 xcreen settings set vault "/absolute/vault"
-xcreen settings set vault "" # disables Daily-note writing
-xcreen settings autodetect
+xcreen settings set vault ""                          # disables note writing
+xcreen settings set timezone Europe/Stockholm         # capture-date Daily notes use this zone
+xcreen settings autodetect                            # finds Hermes and the vault on the server
 xcreen connection reconnect
-xcreen model default                       # show the xCreen session default
-xcreen model select PROVIDER EXACT_MODEL_ID # also saves it as the xCreen default
+xcreen model default                                  # show the xCreen session default
+xcreen model select PROVIDER EXACT_MODEL_ID           # also saves it as the xCreen default
 ```
 
-Settings are persisted by the running app and its gateway reconnects; session identity is retained. The xCreen session default is Claude Haiku 5.5 on your Anthropic account (`anthropic` / `claude-haiku-5-5`) until you pick another configured route in the tray or with `xcreen model default PROVIDER MODEL`; it applies only to the xCreen session, never Hermes's global default, and an unavailable model is reported rather than replaced. Do not use `defaults write` as a parallel live control surface. The installer pre-fills defaults only while the app is stopped.
+Settings are stored by the server, which reconnects Hermes after a change; the session identity is kept. The xCreen session default is Claude Haiku 5.5 on your Anthropic account (`anthropic` / `claude-haiku-5-5`) until you pick another configured route in the tray or with `xcreen model default PROVIDER MODEL`. It applies only to the xCreen session, never Hermes's global default. An unavailable model is reported rather than replaced, and automatic batches wait until it's available; the server re-checks every five minutes.
+
+Bind address, port, data directory and token are changed on the server only: `xcreen-server config KEY=VALUE`, `xcreen-server token --rotate` (then `xcreen server set … --token-stdin` again on the Mac).
+
+## Updating
+
+```sh
+git pull && bash scripts/install-server.sh --tailscale   # on the server: copies the new code and restarts it
+git pull && bash scripts/install.sh --client --server URL  # on the Mac
+```
+
+Client and server check each other's protocol version and refuse to talk across incompatible versions.
 
 ## User-only deliberate actions
-The **Show session in Hermes** tray toggle defaults OFF (hidden). Use `xcreen session visibility on` or `off` to change that same persisted preference for the existing xCreen session. Offline changes remain pending until connection/resume applies them. `xcreen --json status` separates desired `sessionVisible`, last gateway-confirmed `actualSessionVisible` (absent when unknown), and `sessionVisibilityPending`. No profile defaults, session identity, Integrity preference or capture behavior change. Upgrading an existing install with no saved visibility preference applies hidden on its next connection, even if the session was previously manually unhidden.
 
-- Integrity OFF in the tray or `xcreen integrity off` explicitly consents to capture. The same actual service runs permission/state/exclusion gates for both interfaces. Permission denial leaves the user's desired switch unchanged and reports capture blocked; an explicit OFF action may show macOS's permission/settings UI. Do not bypass it. No development test should execute this action against a real capture service.
-- `xcreen ask "QUESTION"` explicitly authorizes that question in the xCreen session. Captured evidence can reach a model provider, and Hermes/provider history may outlive local seven-day retention.
-- Configuring a vault enables the scoped note writer for existing Daily notes; do not configure it without understanding that boundary.
-- On macOS 26+, Spotlight offers "Ask xCreen" (asks for a question, then opens the panel with it filled in; you submit) and "Open xCreen". The build fails if Xcode's App Intents metadata lacks these App Shortcuts. Spotlight picks them up after the installed app is registered and launched once; indexing can take a minute and ranking is up to macOS.
+The **Show session in Hermes** tray toggle defaults OFF (hidden). `xcreen session visibility on|off` changes the same persisted preference on the server. `xcreen --json status` separates the desired `sessionVisible`, the last Hermes-confirmed `actualSessionVisible` and `sessionVisibilityPending`.
+
+- Integrity OFF in the tray or `xcreen integrity off` explicitly consents to capture. The same capture service runs the permission, lock-state and exclusion gates for both. Permission denial leaves your desired switch unchanged and reports capture blocked; an explicit OFF action may show macOS's permission UI. No development test should run this against a real capture service.
+- `xcreen ask "QUESTION"` explicitly sends that question to the xCreen session. Captured evidence can reach a model provider, and Hermes/provider history may outlive the seven-day retention.
+- Configuring a vault enables the scoped note writer; don't configure it without understanding that boundary.
+- On macOS 26+, Spotlight offers "Ask xCreen" (fills the question in; you submit) and "Open xCreen". Spotlight picks them up after the installed app has launched once.
 
 ## Uninstall
 
+Mac app:
+
 ```sh
 xcreen stop
-rm -rf ~/Applications/xCreen.app
-rm -f ~/.local/bin/xcreen
+rm -rf ~/Applications/xCreen.app ~/.local/bin/xcreen
 defaults delete dev.xcreen.app
 ```
 
-Optionally remove `~/Library/Application Support/xCreen`, `~/Library/Logs/xCreen`, and `~/.xcreen-control` after stopping. This does not delete Hermes history, vault notes, backups or provider retention.
+Server on macOS: `launchctl bootout gui/$(id -u)/dev.xcreen.server && rm ~/Library/LaunchAgents/dev.xcreen.server.plist`. Server on Linux: `systemctl --user disable --now xcreen-server && rm ~/.config/systemd/user/xcreen-server.service`. Then remove `~/.local/bin/xcreen-server` and `~/.local/share/xcreen/app`.
 
-See the [CLI reference](docs/cli.md), [CLI parity](docs/cli-parity.md) and [implementation limits](docs/implementation-progress.md).
+Optionally remove the data after stopping: `~/Library/Application Support/xCreen` (evidence and outbox), `~/.local/share/xcreen/evidence` (Linux server), `~/.config/xcreen` (server config and token), `~/Library/Logs/xCreen` and `~/.xcreen-control`. This does not delete Hermes history, vault notes, backups or provider retention.
+
+See the [CLI reference](docs/cli.md), [protocol](docs/protocol.md) and [implementation limits](docs/implementation-progress.md).
 
 
 ---
@@ -197,7 +316,7 @@ See the [CLI reference](docs/cli.md), [CLI parity](docs/cli-parity.md) and [impl
 
 # How xCreen works
 
-This page holds the pipeline and boundary details. For the design, see [architecture](architecture.md); for the commands, see the [CLI reference](cli.md).
+This page holds the pipeline and boundary details. For the design, see [client and server](client-server.md) and [architecture](architecture.md); for the commands, see the [CLI reference](cli.md).
 
 ## Capture pipeline
 
@@ -206,14 +325,15 @@ When Integrity is explicitly turned OFF and every safety gate permits it:
 1. The foreground window is sampled for local Apple Vision OCR at most once per eligible second.
 2. OCR that is ≥90% similar to the last saved snapshot is discarded.
 3. Independent screenshots are saved every ten active seconds.
-4. Five active minutes (or 30 images) form a durable batch, sent with timestamp/ID binding to the same dedicated xCreen Hermes session.
-5. Private evidence files stay outside the vault (under `~/Library/Application Support/xCreen`) and expire after seven days. No forensic-erasure or database-encryption claim is made; use FileVault.
+4. Each OCR snapshot and screenshot goes into the Mac's private outbox and is uploaded to `xcreen-server` in capture order (OCR ahead of the screenshot that follows it). It leaves the outbox once the server acknowledges it; while the server is unreachable the outbox keeps it, retrying with backoff, for at most seven days.
+5. On the server, every 30 screenshots (five active minutes) and the OCR captured up to the last of them form a durable batch, sent with timestamp/ID binding to the same dedicated xCreen Hermes session, but only while Integrity is OFF and the xCreen default model is applied.
+6. Evidence stays outside the vault (on the server: `~/Library/Application Support/xCreen/Evidence` on a Mac, `~/.local/share/xcreen/evidence` on Linux) and expires after seven days. Screenshots are recompressed to JPEG once their batch has a verified completed digest. No forensic-erasure or database-encryption claim is made; use FileVault or disk encryption.
 
 Integrity defaults ON and the user's explicitly chosen value is preserved across restart. Only explicit tray/CLI actions change it. Lock, sleep, exclusions, missing permissions and errors suspend capture without rewriting that choice.
 
 ## Hermes runtime and tools
 
-The bundled Hermes runtime registers only the scoped xCreen tools:
+`xcreen-server` starts the Hermes runtime shipped with it (`runtime/xcreen_gateway.py`, on Hermes's own Python), which registers only the scoped xCreen tools:
 
 - latest/range OCR listing and timestamped coverage status
 - OCR search and nearby image lookup
@@ -262,11 +382,11 @@ Capture, TCC transitions, provider inference, live vault writes and Spotlight ra
 
 # xCreen CLI reference
 
-The `xcreen` command is a thin, state-free client of the running xCreen app. The installer copies it to `~/.local/bin/xcreen` (a standalone copy, not a checkout symlink). Run `xcreen` with no arguments for the built-in usage text.
+The `xcreen` command is a thin, state-free client of the running xCreen app, which in turn talks to `xcreen-server` (on the same Mac or on another machine; see [client and server](client-server.md)). The installer copies it to `~/.local/bin/xcreen` (a standalone copy, not a checkout symlink). Run `xcreen` with no arguments for the built-in usage text.
 
 ## One state owner, two interfaces
 
-The running app's `MainActor` state and shared session controller own Integrity, paths, model selection, connection, query, response and reply attachments. Lifecycle transactions are ordered across awaits; launch settings and observers are bound to their connection generation. The CLI sends private, same-user Unix-socket requests to that same owner. It does not read cached status as live truth, edit defaults, spawn a separate inference process, or create another conversation.
+The running app owns Integrity, capture, the upload outbox, the server URL and token, the current question and reply attachments. The server owns the Hermes session, model selection, batches, history and settings, and the app forwards those commands to it over the [v1 protocol](protocol.md). The CLI sends private, same-user Unix-socket requests to the app. It does not read cached status as live truth, edit defaults, talk to Hermes itself or create another conversation.
 
 ## Commands
 
@@ -278,8 +398,11 @@ usage: xcreen [--json] COMMAND
   connection connect|disconnect|reconnect  (also accepted as top-level commands)
   models [list] | model select PROVIDER MODEL   (select also saves the xCreen default)
   model default [get] | model default PROVIDER MODEL  xCreen-session default only
-  settings [show] | settings set python|root|vault VALUE
-  settings autodetect | autodetect
+  server [show]                   xCreen server URL, reachability and upload queue
+  server set URL [--token-stdin | --token-file PATH]   token is stored in the Keychain
+  flush                          upload everything still queued now
+  settings [show] | settings set python|root|vault|timezone VALUE   (paths on the server)
+  settings autodetect | autodetect   find Hermes and the vault on the server
   ask QUESTION [--wait-ms 0..30000]  explicit submission to the existing xCreen session
   history [--after CURSOR]        bounded sanitized history pages
   batches [--after BATCH_ID]      up to 20 durable batch metadata records
@@ -289,7 +412,7 @@ usage: xcreen [--json] COMMAND
   images [list|open ID]           reply attachment metadata/open through the app
   panel [show|hide]
   start | stop | restart | quit
-  logs [-n N] [--no-follow] [--gateway]
+  logs [-n N] [--no-follow] [--gateway | --server]   (server logs only for a local server)
 ```
 
 Examples:
@@ -304,6 +427,9 @@ xcreen connection reconnect
 xcreen models list
 xcreen model default
 xcreen model select PROVIDER EXACT_MODEL_ID
+xcreen server
+xcreen server set http://100.64.0.10:8765 --token-stdin < token.txt
+xcreen flush
 xcreen settings show
 xcreen settings set vault ""        # disables Daily-note writing
 xcreen settings autodetect
@@ -325,11 +451,15 @@ xcreen restart
 
 **Integrity.** `xcreen integrity off` is an explicit user capture-consent action, equivalent to the tray switch. A denied safety gate leaves the requested switch OFF but capture suspended/blocked with its reason. Lock, sleep and errors never change the user's switch. Startup does not request permissions. Never run OFF as an automated installation/test step. Integrity ON does not erase history or block deliberate historical questions.
 
+**server.** `server` shows the configured URL, whether the server answered, its version, the upload queue and batch counts. `server set URL` saves the URL and, with `--token-stdin` or `--token-file PATH`, stores the token in the login Keychain; the token is never accepted as an argument and never shown. HTTP is allowed only for loopback, private networks, Tailscale and `*.ts.net`/`*.local` names.
+
+**flush.** Uploads everything still queued in the outbox now (it otherwise uploads within seconds of capture, and retries with backoff while the server is unreachable).
+
 **ask.** Submits once to the existing xCreen session. Waiting is bounded to 30 seconds; expiry does **not** cancel an admitted turn. Use `history` or `cancel`. Ask, history and model inventory may reconnect the dedicated session; connection failures are explicit.
 
 **cancel.** Targets the admitted manual question, including a question queued behind automatic work, not an unrelated automatic turn.
 
-**history.** Comes from the host's `xcreen.history.page` for the exact resumed runtime session, not a second transcript database. `history [--after CURSOR]` returns sanitized stable snapshot pages bounded before gateway stdout, flags oversized messages and removes image pixels. Evicted/restarted host cursors fail explicitly.
+**history.** Comes from the server, which reads the host's `xcreen.history.page` for the exact resumed runtime session, not a second transcript database. `history [--after CURSOR]` returns sanitized stable snapshot pages bounded before gateway stdout, flags oversized messages and removes image pixels. Evicted/restarted host cursors fail explicitly.
 
 **batches / verify.** `batches [--after BATCH_ID]` lists up to 20 byte-bounded processing-state and actual receipt metadata records, also visible in the tray; continue from the last ID until an empty page. `xcreen verify` and the tray's Verify receipts action reconcile exact host receipts without inference or note writes. `batches retry` verifies first and re-queues only batches whose host receipt proves zero effects; it does not send inference itself. See [native durability](durable-native-processing.md).
 
@@ -337,13 +467,31 @@ xcreen restart
 
 **model.** `models list` shows Hermes's provider-aware configured routes. `model select` and `model default PROVIDER MODEL` set the xCreen session default only (built-in default: `anthropic` / `claude-haiku-5-5`); Hermes's global default is unchanged. An unavailable model is reported; there is no silent fallback.
 
-**settings.** Changes are persisted by the running app and report persistence and reconnect failure separately. Do not use `defaults write` as a parallel live control surface.
+**settings.** `python`, `root`, `vault` and `timezone` are paths and values **on the server**; the server saves them and reconnects Hermes. `settings autodetect` looks for Hermes and the Obsidian vault on the server. Bind address, port and token change only on the server (`xcreen-server config`, `xcreen-server token --rotate`).
 
-**session visibility.** The tray's **Show session in Hermes** switch and `xcreen session visibility [get|on|off]` share one app-owned persisted preference, default **OFF (hidden)**. They update the existing active session, never create another conversation or change profile defaults. Connect/resume reapplies the saved preference. Offline changes are saved and reported **pending**, separately from gateway-confirmed visibility; they do not connect automatically. `xcreen --json status` separates desired `sessionVisible`, last gateway-confirmed `actualSessionVisible` (absent when unknown), and `sessionVisibilityPending`. This switch does not affect Integrity or capture.
+**session visibility.** The tray's **Show session in Hermes** switch and `xcreen session visibility [get|on|off]` share one server-owned persisted preference, default **OFF (hidden)**. They update the existing active session, never create another conversation or change profile defaults. Connect/resume reapplies the saved preference. Offline changes are saved and reported **pending**, separately from gateway-confirmed visibility; they do not connect automatically. `xcreen --json status` separates desired `sessionVisible`, last gateway-confirmed `actualSessionVisible` (absent when unknown), and `sessionVisibilityPending`. This switch does not affect Integrity or capture.
 
 **Argument handling.** Global `--json` goes before the command; option-shaped question/setting values stay literal.
 
-**start / stop.** Start launches the installed app without enabling capture; stop/quit request graceful app-owned teardown. No process-name kill is used by the CLI.
+**start / stop.** Start launches the installed app without enabling capture; stop/quit request graceful app-owned teardown (the app first tries to upload what's queued). They don't stop the server. No process-name kill is used by the CLI.
+
+**logs.** `logs` tails the app log; `--gateway` and `--server` tail the Hermes gateway and server logs of a server on the same Mac. For a Linux server use `journalctl --user -u xcreen-server` there.
+
+## Server commands
+
+`xcreen-server` runs on the server machine:
+
+```text
+xcreen-server init [--bind ADDR] [--port N] [--vault PATH] [--data-dir PATH] [--timezone TZ]
+                   [--import-mac-app] [--session-id ID] [--no-detect]
+xcreen-server serve [-v]
+xcreen-server token [--rotate]
+xcreen-server doctor
+xcreen-server config [KEY=VALUE ...]
+xcreen-server migrate-journal (--from-vault OLD_PATH | --from-key KEY)
+```
+
+`scripts/install-server.sh` runs `init`, installs the service and finishes with `doctor`.
 
 **URL scheme and Spotlight.** `xcreen://ask?query=...`, `xcreen://open` and the macOS 26+ "Ask xCreen"/"Open xCreen" App Shortcuts only open/fill the panel, never submit automatically. They work whether xCreen is already running or is launched by the URL. Arbitrary-query Spotlight interception is not claimed.
 
@@ -376,9 +524,19 @@ The session gate requires a present session dictionary with strict Boolean true 
 
 Foreground bundle/PID, permission, session and capture-generation checks remain before screenshot acquisition, after awaited acquisition/OCR, and before ingestion. Pauses revoke persistence epochs so late work is rejected. Foreground checks cannot prove that every displayed overlay or password/login surface is safe, nor remove all timing races in OS observations.
 
+## Client and server
+
+Since 2.0 the Mac app uploads captures to `xcreen-server`, which may run on another machine ([design](docs/client-server.md), [protocol](docs/protocol.md)).
+
+- **Authentication.** Every request except `GET /v1/health` needs a bearer token: 256 random bits, created by `xcreen-server init`, stored `0600` on the server and in the macOS login Keychain on the client (accessible after first unlock, this device only), compared in constant time. The CLI accepts it only on stdin or from a file, never as an argument. Rotate with `xcreen-server token --rotate`.
+- **Transport.** The server refuses to bind `0.0.0.0`/`::`; the default is `127.0.0.1`, and `--tailscale` binds the Tailscale address, where WireGuard encrypts and authenticates the tailnet. The client sends plain HTTP only to loopback, RFC 1918, Tailscale (100.64.0.0/10) and `*.ts.net`/`*.local` hosts and requires HTTPS for anything else. App Transport Security is disabled in the app because it can't express that policy; the app enforces it instead. Anyone who can reach the port and holds the token can read evidence and ask questions, so treat the token like a password.
+- **Input.** The server bounds every request (JSON 2 MB, images 30 MB, 500 OCR items), validates ids, timestamps (last seven days, at most five minutes ahead) and image signatures before writing anything, and never logs bodies or tokens. Stored image references are re-anchored by validated file name, so an index entry can't point outside the store.
+- **Integrity across machines.** The client reports Integrity immediately on every change; the server blocks automatic batches while it is ON and before any client has reported. Evidence already uploaded is digested while the Mac sleeps or is locked (1.x paused until unlock). Automatic batches also wait until the xCreen default model is applied, so they never run on an unintended model.
+- **Where evidence lives.** With a split install, screenshots, OCR, receipts and notes live on the server. Secure that machine accordingly (disk encryption, trusted accounts, backups you control). The Mac keeps captures only until the server acknowledges them.
+
 ## Evidence and reporting
 
-Private evidence remains outside the vault with bounded retention and private file permissions. File permissions are not encryption; use FileVault and a trusted OS account. Expiry cannot promise forensic erasure, backup deletion or deletion of Hermes/provider transcripts. Screen text is untrusted evidence, never authority to send messages, alter calendars or execute commands. No screenshots, raw OCR history, personal vault contents or credentials belong in the repository.
+Private evidence remains outside the vault with bounded retention and private file permissions, on the Mac (outbox) and on the server (store). File permissions are not encryption; use FileVault or disk encryption and a trusted OS account. Expiry cannot promise forensic erasure, backup deletion or deletion of Hermes/provider transcripts. Screen text is untrusted evidence, never authority to send messages, alter calendars or execute commands. No screenshots, raw OCR history, personal vault contents or credentials belong in the repository.
 
 Real TCC, capture, lock/sleep transitions, OCR, provider inference and live vault writes need separate user-authorized on-device verification. Synthetic tests and builds do not verify them.
 

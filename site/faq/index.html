@@ -48,7 +48,7 @@
       "name": "Is there an app that remembers what I did on my screen on a Mac?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "xCreen does. Ask it things like \"What was the error I saw in the build log this morning?\" It reads the foreground window with local Apple Vision OCR and saves a screenshot every 10 active seconds. Ask from the menu-bar tray, the macOS 26+ \"Ask xCreen\" Spotlight action, or xcreen ask in a terminal. Screenshots stay on your Mac for seven days; short takeaways go into your Obsidian daily notes."
+        "text": "xCreen does. Ask it things like \"What was the error I saw in the build log this morning?\" It reads the foreground window with local Apple Vision OCR and saves a screenshot every 10 active seconds. Ask from the menu-bar tray, the macOS 26+ \"Ask xCreen\" Spotlight action, or xcreen ask in a terminal. Screenshots are kept for seven days, on your Mac or on the server that runs Hermes; short takeaways go into your Obsidian daily notes."
       }
     },
     {
@@ -56,7 +56,7 @@
       "name": "Does xCreen send my screenshots to the cloud?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "If your Hermes model is a cloud model, yes. OCR and storage are local, but every 5 active minutes a batch goes to your Hermes provider, and so do your questions. That provider's retention rules then apply. xCreen has no server of its own and stores no API keys. For on-device inference, configure a local model in Hermes. While the Integrity switch is ON, no new screenshots, OCR or automatic batches happen. Details: SECURITY.md."
+        "text": "If your Hermes model is a cloud model, yes. OCR is local and storage stays on machines you run (your Mac, or your own server next to Hermes), but every 5 active minutes a batch goes to your Hermes provider, and so do your questions. That provider's retention rules then apply. xCreen has no cloud service of its own and stores no API keys. For on-device inference, configure a local model in Hermes. While the Integrity switch is ON, no new screenshots, OCR or automatic batches happen. Details: SECURITY.md."
       }
     },
     {
@@ -88,7 +88,7 @@
       "name": "Does xCreen work on Windows or Linux?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "No. macOS 14 or later only (Spotlight needs macOS 26). If you need Windows or Linux, screenpipe lists macOS, Windows and Linux support; Goldfish lists macOS and Windows; Microsoft Recall runs on Windows 11 Copilot+ PCs. See the comparison."
+        "text": "Capture needs a Mac: the app runs on macOS 14 or later (Spotlight needs macOS 26). The server part, which runs next to Hermes, also runs on Linux, so Hermes can live on a Linux machine. If you need capture on Windows or Linux, screenpipe lists macOS, Windows and Linux support; Goldfish lists macOS and Windows; Microsoft Recall runs on Windows 11 Copilot+ PCs. See the comparison."
       }
     },
     {
@@ -112,7 +112,7 @@
       "name": "How long are screenshots kept?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Seven days, then they are deleted. Anything already sent to your model provider or saved in Hermes history follows their retention rules, and notes in your vault stay until you delete them. Local storage uses private file permissions but is not encrypted, so use FileVault. Deletion does not guarantee forensic erasure."
+        "text": "Seven days, then they are deleted. Anything already sent to your model provider or saved in Hermes history follows their retention rules, and notes in your vault stay until you delete them. Storage, on your Mac or your server, uses private file permissions but is not encrypted, so use FileVault or disk encryption. Deletion does not guarantee forensic erasure."
       }
     },
     {
@@ -141,10 +141,18 @@
     },
     {
       "@type": "Question",
+      "name": "Can Hermes run on a home server instead of my Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Since 2.0 the Mac app only captures and uploads; xcreen-server runs next to Hermes on a Linux or macOS machine and owns the screen history, the Hermes session and your notes. The usual setup is a home server or VM on your Tailscale network. Every request carries a secret token, and the Mac keeps capturing into a private queue while the server is unreachable. The same code also runs both parts on one Mac."
+      }
+    },
+    {
+      "@type": "Question",
       "name": "How do I install xCreen?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Download the zip from release 1.0.0, or build it: git clone https://github.com/Al-ex-W/xCreen.git && cd xCreen && bash scripts/install.sh. You need macOS 14+ and Hermes Agent; building also needs Xcode/Swift and Python 3. Full steps, including uninstalling: INSTALL.md."
+        "text": "Download the app from release 2.0.0, or build it: git clone https://github.com/Al-ex-W/xCreen.git && cd xCreen && bash scripts/install.sh. That installs the app and the server on one Mac. With Hermes on another machine, run scripts/install-server.sh there and scripts/install.sh --client --server URL on the Mac. You need macOS 14+ for the app and Hermes Agent wherever the server runs; building the app also needs Xcode/Swift. Full steps, including moving an existing install and uninstalling: INSTALL.md."
       }
     },
     {
@@ -259,15 +267,15 @@
 
 <h2 id="is-there-an-app-that-remembers-what-i-did-on-my-screen-on-a-mac">Is there an app that remembers what I did on my screen on a Mac?</h2>
 <p><strong>xCreen does. Ask it things like "What was the error I saw in the build log this morning?"</strong></p>
-<p>It reads the foreground window with local Apple Vision OCR and saves a screenshot every 10 active seconds. Ask from the menu-bar tray, the macOS 26+ "Ask xCreen" Spotlight action, or <code>xcreen ask</code> in a terminal. Screenshots stay on your Mac for seven days; short takeaways go into your Obsidian daily notes.</p>
+<p>It reads the foreground window with local Apple Vision OCR and saves a screenshot every 10 active seconds. Ask from the menu-bar tray, the macOS 26+ "Ask xCreen" Spotlight action, or <code>xcreen ask</code> in a terminal. Screenshots are kept for seven days, on your Mac or on the server that runs Hermes; short takeaways go into your Obsidian daily notes.</p>
 
 <h2 id="does-xcreen-send-my-screenshots-to-the-cloud">Does xCreen send my screenshots to the cloud?</h2>
-<p><strong>If your Hermes model is a cloud model, yes. OCR and storage are local, but every 5 active minutes a batch goes to your Hermes provider, and so do your questions.</strong></p>
-<p>That provider's retention rules then apply. xCreen has no server of its own and stores no API keys. For on-device inference, configure a local model in Hermes. While the Integrity switch is ON, no new screenshots, OCR or automatic batches happen. Details: <a href="https://github.com/Al-ex-W/xCreen/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+<p><strong>If your Hermes model is a cloud model, yes. OCR is local and storage stays on machines you run, but every 5 active minutes a batch goes to your Hermes provider, and so do your questions.</strong></p>
+<p>Screenshots and OCR are stored by <code>xcreen-server</code>, on your Mac or on your own server next to Hermes. That provider's retention rules then apply. xCreen has no cloud service of its own and stores no API keys. For on-device inference, configure a local model in Hermes. While the Integrity switch is ON, no new screenshots, OCR or automatic batches happen. Details: <a href="https://github.com/Al-ex-W/xCreen/blob/main/SECURITY.md">SECURITY.md</a>.</p>
 
 <h2 id="does-xcreen-work-with-obsidian">Does xCreen work with Obsidian?</h2>
 <p><strong>Yes. Set a vault and short takeaways go into that day's daily note, plus related notes when they fit.</strong></p>
-<p>If nothing is worth keeping, nothing is written. Raw screenshots and OCR stay outside the vault in <code>~/Library/Application Support/xCreen</code>. A missing dated note may be created with a minimal heading; templates are never executed. Setting the vault to empty (<code>xcreen settings set vault ""</code>) disables Daily-note writing.</p>
+<p>If nothing is worth keeping, nothing is written. Raw screenshots and OCR stay outside the vault, on the machine that runs <code>xcreen-server</code>. With Hermes on a server, notes go to the vault folder on that server; syncing it to your devices is up to you. A missing dated note may be created with a minimal heading; templates are never executed. Setting the vault to empty (<code>xcreen settings set vault ""</code>) disables Daily-note writing.</p>
 
 <h2 id="which-ai-models-can-xcreen-use">Which AI models can xCreen use?</h2>
 <p><strong>Any model configured in Hermes. Pick one in the tray.</strong></p>
@@ -278,8 +286,8 @@
 <p>Forks that redistribute it must keep the Apache notices; no advertising credit is required. You pay only for whatever model provider you configure in Hermes, if any.</p>
 
 <h2 id="does-xcreen-work-on-windows-or-linux">Does xCreen work on Windows or Linux?</h2>
-<p><strong>No. macOS 14 or later only (Spotlight needs macOS 26).</strong></p>
-<p>If you need Windows or Linux, screenpipe lists macOS, Windows and Linux support; Goldfish lists macOS and Windows; Microsoft Recall runs on Windows 11 Copilot+ PCs. See the <a href="../alternatives/">comparison</a>.</p>
+<p><strong>Capture needs a Mac (macOS 14 or later; Spotlight needs macOS 26). The server part also runs on Linux, so Hermes can live on a Linux machine.</strong></p>
+<p>If you need capture on Windows or Linux, screenpipe lists macOS, Windows and Linux support; Goldfish lists macOS and Windows; Microsoft Recall runs on Windows 11 Copilot+ PCs. See the <a href="../alternatives/">comparison</a>.</p>
 
 <h2 id="how-is-xcreen-different-from-screenpipe">How is xCreen different from screenpipe?</h2>
 <p><strong>xCreen is a Mac app that feeds your Hermes Agent and writes to Obsidian. screenpipe runs on macOS, Windows and Linux, records audio too, and uses a source-available commercial license.</strong></p>
@@ -305,9 +313,13 @@
 <p><strong>Yes. xCreen has no model or API keys of its own and uses your <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> profile read-only.</strong></p>
 <p>If you don't want an agent dependency, Retrace or screenpipe may suit you better.</p>
 
+<h2 id="can-hermes-run-on-a-home-server-instead-of-my-mac">Can Hermes run on a home server instead of my Mac?</h2>
+<p><strong>Yes. Since 2.0 the Mac app only captures and uploads; <code>xcreen-server</code> runs next to Hermes on a Linux or macOS machine and owns the screen history, the Hermes session and your notes.</strong></p>
+<p>The usual setup is a home server or VM on your <a href="https://tailscale.com/">Tailscale</a> network: <code>scripts/install-server.sh --tailscale</code> there, then point the Mac at it. Every request carries a secret token, and the Mac keeps capturing into a private queue while the server is unreachable. The same code also runs both parts on one Mac. Details: <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/client-server.md">client and server</a>.</p>
+
 <h2 id="how-do-i-install-xcreen">How do I install xCreen?</h2>
-<p><strong>Download the zip from <a href="https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0">release 1.0.0</a>, or build it: <code>git clone https://github.com/Al-ex-W/xCreen.git &amp;&amp; cd xCreen &amp;&amp; bash scripts/install.sh</code>.</strong></p>
-<p>You need macOS 14+ and Hermes Agent; building also needs Xcode/Swift and Python 3. Full steps, including uninstalling: <a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">INSTALL.md</a>.</p>
+<p><strong>Download the app from <a href="https://github.com/Al-ex-W/xCreen/releases/tag/v2.0.0">release 2.0.0</a>, or build it: <code>git clone https://github.com/Al-ex-W/xCreen.git &amp;&amp; cd xCreen &amp;&amp; bash scripts/install.sh</code>. That installs the app and the server on one Mac.</strong></p>
+<p>With Hermes on another machine, run <code>scripts/install-server.sh</code> there and <code>scripts/install.sh --client --server URL</code> on the Mac. You need macOS 14+ for the app and Hermes Agent wherever the server runs; building the app also needs Xcode/Swift. Full steps, including moving an existing install and uninstalling: <a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">INSTALL.md</a>.</p>
 <h2 id="does-xcreen-have-an-mcp-server-or-api">Does xCreen have an MCP server or API?</h2>
 <p><strong>Not yet. Today the local interface is the <code>xcreen</code> CLI, and <code>xcreen --json</code> prints machine-readable output.</strong></p>
 <p>A read-only MCP server (search, recent, coverage, ask) is planned; follow it on the <a href="https://github.com/Al-ex-W/xCreen/issues/1">roadmap issue</a> and in the <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/roadmap.md">roadmap</a>. Commands and output: <a href="../cli/">CLI and JSON</a>.</p>

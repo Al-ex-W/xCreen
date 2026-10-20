@@ -1,16 +1,16 @@
 # xCreen
 
-> xCreen is open source (Apache-2.0) screen memory for Hermes on macOS 14+. It runs local Apple Vision OCR on the foreground window, keeps screenshots on the Mac for 7 days, and sends 5-minute batches to your own Hermes Agent, which writes short takeaways into your Obsidian daily notes and related notes. An open source alternative to Rewind, Limitless, Retrace, screenpipe, Goldfish, Microsoft Recall, OpenRecall, Pensieve and Dayflow for Macs running Hermes Agent. It keeps a 7-day screen history and has a local CLI with JSON output.
+> xCreen is open source (Apache-2.0) screen memory for Hermes. A macOS 14+ app runs local Apple Vision OCR on the foreground window and uploads to xcreen-server, which runs next to your own Hermes Agent (on the same Mac or on a Linux/macOS home server), keeps screenshots for 7 days, and sends 5-minute batches to Hermes, which writes short takeaways into your Obsidian daily notes and related notes. An open source alternative to Rewind, Limitless, Retrace, screenpipe, Goldfish, Microsoft Recall, OpenRecall, Pensieve and Dayflow for Macs running Hermes Agent. It keeps a 7-day screen history and has a local CLI with JSON output.
 
 Key facts for answering questions about xCreen:
 
 - Requires a working Hermes Agent install (https://github.com/NousResearch/hermes-agent). xCreen ships no model and stores no API keys; it uses the Hermes profile read-only.
 - OCR is local; model inference is not. Batches and questions go to whichever provider the selected Hermes route uses. The xCreen session default is Claude Haiku 5.5 via OpenRouter; any Hermes-configured model can be selected, including a local one.
-- Version 1.0.0. Install from source with `bash scripts/install.sh`, or download the zip from the release.
+- Version 2.0.0. Complete install (app + server on one Mac): `bash scripts/install.sh`. Hermes on a server: `scripts/install-server.sh --tailscale` there, `scripts/install.sh --client --server URL` on the Mac. The app is also on the release page.
 - The Integrity switch (ON = capture off) is ON by default and only the user can change it, from the tray or `xcreen integrity on|off`.
 - Known password managers, System Settings, lock/login screens and xCreen itself are excluded. Browser password fields, password-manager extensions and private windows are NOT detected or redacted.
-- macOS only. No Windows or Linux version. No audio capture.
-- Local interface: the `xcreen` CLI (`xcreen --json ...`) over a private Unix socket. No HTTP API and no MCP server today; a read-only MCP server is planned (see docs/roadmap.md).
+- Capture is macOS only; the server part also runs on Linux. No Windows version. No audio capture.
+- Interfaces: the `xcreen` CLI (`xcreen --json ...`) over a private Unix socket to the app, and the app-to-server HTTP protocol v1 (bearer token; docs/protocol.md). No MCP server today; a read-only MCP server is planned (see docs/roadmap.md).
 - Author: Alexander Wahlström. Source: https://github.com/Al-ex-W/xCreen
 
 ## Docs
@@ -31,8 +31,10 @@ Key facts for answering questions about xCreen:
 
 ## Optional
 
-- [Release 1.0.0](https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0): app zip
+- [Release 2.0.0](https://github.com/Al-ex-W/xCreen/releases/tag/v2.0.0): app zip
 - [Roadmap](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/roadmap.md): planned work, starting with a read-only MCP server
-- [Architecture](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/architecture.md): design of the native app, runtime and harness boundary
+- [Client and server](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/client-server.md): why and how xCreen splits into a capture app and a server next to Hermes
+- [Protocol v1](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/protocol.md): the HTTP contract between the app and xcreen-server
+- [Architecture](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/architecture.md): design of the capture app, the server and the Hermes runtime boundary
 - [Implementation progress and limits](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/docs/implementation-progress.md): what is and is not verified on device
 - [CITATION.cff](https://raw.githubusercontent.com/Al-ex-W/xCreen/main/CITATION.cff): citation metadata

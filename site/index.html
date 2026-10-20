@@ -28,13 +28,13 @@
   "@type": "SoftwareApplication",
   "name": "xCreen",
   "alternateName": "xCreen screen memory",
-  "description": "Open source screen memory for Hermes on macOS. Local Apple Vision OCR of the foreground window, screenshots kept on your Mac for 7 days, and short takeaways written into your Obsidian daily notes by your own Hermes Agent.",
+  "description": "Open source screen memory for Hermes. A Mac app captures the foreground window with local Apple Vision OCR; Hermes runs on the same Mac or a home server, keeps 7 days of screen history and writes short takeaways into your Obsidian daily notes.",
   "url": "https://al-ex-w.github.io/xCreen/",
   "applicationCategory": "ProductivityApplication",
-  "operatingSystem": "macOS 14+",
-  "softwareVersion": "1.0.0",
-  "releaseNotes": "https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0",
-  "downloadUrl": "https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0",
+  "operatingSystem": "macOS 14+ (capture app); macOS or Linux (server, next to Hermes)",
+  "softwareVersion": "2.0.0",
+  "releaseNotes": "https://github.com/Al-ex-W/xCreen/releases/tag/v2.0.0",
+  "downloadUrl": "https://github.com/Al-ex-W/xCreen/releases/tag/v2.0.0",
   "installUrl": "https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md",
   "codeRepository": "https://github.com/Al-ex-W/xCreen",
   "sameAs": ["https://github.com/Al-ex-W/xCreen"],
@@ -42,7 +42,7 @@
   "isAccessibleForFree": true,
   "image": "https://al-ex-w.github.io/xCreen/assets/social-preview.png",
   "screenshot": "https://al-ex-w.github.io/xCreen/assets/tray.png",
-  "softwareRequirements": "macOS 14 or later; Hermes Agent (https://github.com/NousResearch/hermes-agent); Xcode/Swift and Python 3 to build from source",
+  "softwareRequirements": "macOS 14 or later for the capture app (Xcode/Swift to build); Hermes Agent (https://github.com/NousResearch/hermes-agent) on the same Mac or on a Linux/macOS server",
   "featureList": [
     "Local Apple Vision OCR of the foreground window, at most once per second, with near-duplicate dropping",
     "Screenshot every 10 active seconds, raw evidence deleted after 7 days",
@@ -66,9 +66,9 @@
 <div class="hero">
   <div>
     <h1>Screen memory for Hermes on macOS</h1>
-    <p class="lead">xCreen reads your screen with local OCR, keeps it on your Mac for seven days, and has your <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> write short takeaways into your Obsidian daily notes.</p>
+    <p class="lead">xCreen reads your screen with local OCR, keeps seven days of it, and has your <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> write short takeaways into your Obsidian daily notes. Hermes can run on the same Mac or on a home server.</p>
     <p>Ask what you saw from the menu bar, Spotlight or the terminal. Open source, and an alternative to Rewind and Microsoft Recall.</p>
-    <p class="cta"><a href="https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0">Download 1.0.0</a><a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">Install</a><a href="https://github.com/Al-ex-W/xCreen">GitHub</a></p>
+    <p class="cta"><a href="https://github.com/Al-ex-W/xCreen/releases/tag/v2.0.0">Download 2.0.0</a><a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">Install</a><a href="https://github.com/Al-ex-W/xCreen">GitHub</a></p>
   </div>
   <figure>
     <img src="assets/tray.png" width="410" height="733" alt="xCreen menu-bar tray panel showing the Integrity switch, the Hermes session model picker, the question 'What was I working on before lunch?' and an answer with a timestamped attachment">
@@ -79,7 +79,8 @@
 <ul>
   <li><strong>Ask about what you've seen.</strong> From the menu-bar tray, the macOS 26+ "Ask xCreen" Spotlight action (it fills the question in, you submit), or <code>xcreen ask</code> in a terminal.</li>
   <li><strong>Local capture with dedup.</strong> Apple Vision OCR runs on the foreground window at most once per second, and text that is at least 90% similar to the last snapshot is dropped. A screenshot is saved every 10 active seconds.</li>
-  <li><strong>One Hermes session, not a new chat each time.</strong> Every 5 active minutes (or 30 images), a batch goes to a single persistent xCreen session in your Hermes Agent.</li>
+  <li><strong>Hermes on your Mac or on a server.</strong> The Mac app only captures and uploads. <code>xcreen-server</code> runs next to Hermes, on the same Mac or on a Linux or macOS machine you reach over Tailscale, and owns the screen history, the Hermes session and your notes. Both setups run the same code.</li>
+  <li><strong>One Hermes session, not a new chat each time.</strong> Every 30 screenshots (5 active minutes), a batch goes to a single persistent xCreen session in your Hermes Agent, on the model you chose for xCreen.</li>
   <li><strong>Notes that read like yours.</strong> Decisions, deadlines, people and ideas go into that day's note in your Obsidian vault as short bullets, plus related notes when they fit. Nothing worth keeping, nothing written.</li>
   <li><strong>Integrity switch.</strong> One switch, controlled only by you, stops all new screenshots and OCR. It is ON at first launch and keeps your choice across restarts.</li>
   <li><strong>Any model you configure.</strong> Pick any model your Hermes setup has configured. The xCreen session default is Claude Haiku 5.5 on your Anthropic account.</li>
@@ -88,9 +89,9 @@
 <h2 id="how-it-works">How it works</h2>
 <ol>
   <li>While Integrity is OFF and every safety gate passes (Mac unlocked and awake, permission granted, foreground app not excluded), xCreen samples the foreground window for local OCR.</li>
-  <li>Near-duplicate OCR is discarded; screenshots are saved every ten active seconds to private files under <code>~/Library/Application Support/xCreen</code>, outside your vault.</li>
-  <li>Five active minutes (or 30 images) form a durable batch, sent to the same dedicated xCreen session in Hermes Agent.</li>
-  <li>The bundled runtime gives that session only scoped tools: OCR search and listing, image lookup, and a writer that adds takeaways to that day's daily note and related notes.</li>
+  <li>Near-duplicate OCR is discarded; screenshots are saved every ten active seconds. The Mac keeps them in a private outbox only until <code>xcreen-server</code> has them, and keeps queuing while the server is unreachable.</li>
+  <li>On the server, every 30 screenshots (five active minutes) form a durable batch, sent to the same dedicated xCreen session in Hermes Agent.</li>
+  <li>The runtime shipped with the server gives that session only scoped tools: OCR search and listing, image lookup, and a writer that adds takeaways to that day's daily note and related notes.</li>
   <li>Each batch completes only after an explicit saved or skipped result and verified receipts, so a crash does not cause blind resends or duplicate notes.</li>
 </ol>
 <p>Details: <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/how-it-works.md">How xCreen works</a> · <a href="https://github.com/Al-ex-W/xCreen/blob/main/docs/cli.md">CLI reference</a>.</p>
@@ -98,7 +99,8 @@
 <h2 id="privacy">Privacy and safety</h2>
 <ul>
   <li><strong>What's captured:</strong> screenshots and OCR text of the eligible foreground window, only while Integrity is OFF and the Mac is unlocked and awake.</li>
-  <li><strong>Where it's stored:</strong> private local files outside your vault. This storage is not encrypted, so use FileVault. Only short takeaways go into your notes.</li>
+  <li><strong>Where it's stored:</strong> private files outside your vault on the machine that runs <code>xcreen-server</code> (your Mac, or your server). This storage is not encrypted, so use FileVault or disk encryption. Only short takeaways go into your notes.</li>
+  <li><strong>Between Mac and server:</strong> every request carries a secret token; plain HTTP is only accepted on loopback, private networks and Tailscale.</li>
   <li><strong>Retention:</strong> raw evidence expires after 7 days. Anything already sent to your model provider or saved in Hermes history follows their retention rules. Deletion does not guarantee forensic erasure.</li>
   <li><strong>Excluded:</strong> known password managers (1Password, Bitwarden, LastPass, Dashlane, KeePass, Apple Passwords, Keychain), System Settings, lock and login screens, and xCreen itself.</li>
   <li><strong>Not protected:</strong> browser password fields, password-manager browser extensions and popovers, and incognito/private windows are not detected or redacted. Turn Integrity ON before sensitive browsing.</li>
@@ -110,14 +112,21 @@
 <ul>
   <li><strong>A working <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> install is required.</strong> xCreen does not include a model or keep API keys. It uses your Hermes profile read-only.</li>
   <li><strong>Local OCR does not mean local inference.</strong> Batches and questions go to the provider behind your chosen Hermes route, and that provider's retention rules apply. For on-device inference, configure a local model in Hermes.</li>
-  <li>macOS 14 or later, Xcode/Swift and Python 3. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.</li>
+  <li>The Mac app needs macOS 14 or later (Xcode/Swift to build). The server runs on Hermes's own Python on macOS or Linux. The Spotlight action needs macOS 26 or later and full Xcode (its App Intents metadata tool); launch xCreen once after installing so Spotlight can index it, which may take a minute.</li>
 </ul>
 
 <h2 id="install">Install</h2>
+<p>Hermes on the same Mac:</p>
 <pre><code>git clone https://github.com/Al-ex-W/xCreen.git &amp;&amp; cd xCreen
-bash scripts/install.sh           # builds, installs to ~/Applications, copies `xcreen` to ~/.local/bin
+bash scripts/install.sh           # app + local xcreen-server
 xcreen status                     # Integrity should report ON (capture paused)</code></pre>
-<p>Turn Integrity OFF from the tray when you want capture to start. The <a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">install guide</a> covers vault setup, signing, verification and uninstalling. Or download the zip from <a href="https://github.com/Al-ex-W/xCreen/releases/tag/v1.0.0">release 1.0.0</a>.</p>
+<p>Hermes on a server (for example a Linux VM on your tailnet):</p>
+<pre><code># on the server, next to Hermes
+bash scripts/install-server.sh --tailscale
+# on the Mac
+bash scripts/install.sh --client --server http://SERVER-TAILSCALE-IP:8765
+ssh SERVER '~/.local/bin/xcreen-server token' | xcreen server set http://SERVER-TAILSCALE-IP:8765 --token-stdin</code></pre>
+<p>Turn Integrity OFF from the tray when you want capture to start. The <a href="https://github.com/Al-ex-W/xCreen/blob/main/INSTALL.md">install guide</a> covers vault setup, moving an existing install to a server, verification and uninstalling. Or download the app from <a href="https://github.com/Al-ex-W/xCreen/releases/tag/v2.0.0">release 2.0.0</a>.</p>
 
 <h2 id="more">More</h2>
 <ul>

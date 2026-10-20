@@ -98,12 +98,12 @@
 <tr><th scope="col"></th><th scope="col">xCreen</th><th scope="col">Rewind</th><th scope="col">screenpipe</th><th scope="col">Retrace</th><th scope="col">Goldfish</th><th scope="col">Microsoft Recall</th></tr>
 </thead>
 <tbody>
-<tr><th scope="row">Platform</th><td>macOS 14+</td><td>macOS<sup><a href="#rw1">[1]</a></sup></td><td>macOS, Windows, Linux<sup><a href="#sp1">[3]</a></sup></td><td>macOS 13+, Apple Silicon<sup><a href="#rt1">[5]</a></sup></td><td>macOS, Windows<sup><a href="#gf1">[7]</a></sup></td><td>Windows 11 Copilot+ PCs<sup><a href="#ms1">[9]</a></sup></td></tr>
+<tr><th scope="row">Platform</th><td>Capture on macOS 14+; server on macOS or Linux</td><td>macOS<sup><a href="#rw1">[1]</a></sup></td><td>macOS, Windows, Linux<sup><a href="#sp1">[3]</a></sup></td><td>macOS 13+, Apple Silicon<sup><a href="#rt1">[5]</a></sup></td><td>macOS, Windows<sup><a href="#gf1">[7]</a></sup></td><td>Windows 11 Copilot+ PCs<sup><a href="#ms1">[9]</a></sup></td></tr>
 <tr><th scope="row">License / source</th><td>Apache-2.0, open source</td><td>—</td><td>Source-available Screenpipe Commercial License; personal non-commercial use free, commercial use needs a license<sup><a href="#sp2">[4]</a></sup></td><td>MIT, open source<sup><a href="#rt2">[6]</a></sup></td><td>Not covered here</td><td>Windows feature</td></tr>
 <tr><th scope="row">Capture method</th><td>Foreground-window screenshots + local Vision OCR</td><td>Screen and audio recording<sup><a href="#rw1">[1]</a></sup></td><td>Accessibility tree, OCR fallback, audio transcription<sup><a href="#sp1">[3]</a></sup></td><td>Screenshots every 2 s + Vision OCR, SQLite FTS5<sup><a href="#rt1">[5]</a></sup></td><td>Foreground-window text via Accessibility, no screenshots<sup><a href="#gf2">[8]</a></sup></td><td>Periodic snapshots<sup><a href="#ms1">[9]</a></sup></td></tr>
 <tr><th scope="row">Where AI runs</th><td>Whichever provider your Hermes route uses (OCR is local, inference usually isn't)</td><td>—</td><td>Local models (e.g. Ollama) or cloud AI, as you configure<sup><a href="#sp1">[3]</a></sup></td><td>No model inference listed as active<sup><a href="#rt1">[5]</a></sup></td><td>Cloud: Azure OpenAI via Cloudflare; memory stored locally<sup><a href="#gf2">[8]</a></sup></td><td>Processed locally on the PC<sup><a href="#ms2">[10]</a></sup></td></tr>
 <tr><th scope="row">Writes to your notes</th><td>Yes, short takeaways in Obsidian daily notes</td><td>—</td><td>—</td><td>—</td><td>Keeps its own local memory, exposed over MCP<sup><a href="#gf2">[8]</a></sup></td><td>—</td></tr>
-<tr><th scope="row">Status</th><td>1.0.0</td><td>Shut down: capture disabled Dec 19, 2025 after Meta acquired Limitless<sup><a href="#rw1">[1]</a><a href="#rw2">[2]</a></sup></td><td>Actively developed<sup><a href="#sp1">[3]</a></sup></td><td>"Very early development"<sup><a href="#rt1">[5]</a></sup></td><td>Free beta<sup><a href="#gf1">[7]</a></sup></td><td>Available on supported PCs<sup><a href="#ms1">[9]</a></sup></td></tr>
+<tr><th scope="row">Status</th><td>2.0.0</td><td>Shut down: capture disabled Dec 19, 2025 after Meta acquired Limitless<sup><a href="#rw1">[1]</a><a href="#rw2">[2]</a></sup></td><td>Actively developed<sup><a href="#sp1">[3]</a></sup></td><td>"Very early development"<sup><a href="#rt1">[5]</a></sup></td><td>Free beta<sup><a href="#gf1">[7]</a></sup></td><td>Available on supported PCs<sup><a href="#ms1">[9]</a></sup></td></tr>
 </tbody>
 </table>
 </div>
@@ -148,7 +148,7 @@
 
 <h3 id="limitless">Limitless and Rewind</h3>
 <p>Limitless, which made Rewind, was acquired by Meta and says it is sunsetting non-Pendant functionality like Rewind<sup><a href="#lm1">[16]</a></sup>. There is no Rewind desktop app to install in 2026.</p>
-<p><strong>How xCreen differs:</strong> xCreen is open source and runs on your Mac with your own Hermes Agent, so it does not depend on one company's service staying up.</p>
+<p><strong>How xCreen differs:</strong> xCreen is open source and runs on your own machines (your Mac, plus optionally your own server) with your own Hermes Agent, so it does not depend on one company's service staying up.</p>
 
 
 <h2 id="when-to-choose-another-tool">When to choose another tool</h2>
