@@ -50,6 +50,9 @@ class CompactorTests(TempDirTestCase):
         for encoder in encoders:
             data = run(encoder.encode(path))
             self.assertTrue(data.startswith(b"\xff\xd8\xff"), encoder.name)
+            sharper = run(encoder.encode(path, quality=85))
+            self.assertTrue(sharper.startswith(b"\xff\xd8\xff"), encoder.name)
+            self.assertGreater(len(sharper), len(data), encoder.name)
         self.assertIsNotNone(default_encoder())
 
 
